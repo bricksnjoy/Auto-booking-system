@@ -1,6 +1,8 @@
+import Image from "next/image";
+
 /**
- * Spruce & Co monogram. `onDark` renders the mark in white for the navy
- * background; otherwise it draws in brand navy.
+ * The Spruce & Co monogram. `onDark` picks the white cutout for navy
+ * surfaces; otherwise the navy mark is used.
  */
 export function Logo({
   size = 32,
@@ -11,40 +13,26 @@ export function Logo({
   onDark?: boolean;
   className?: string;
 }) {
-  const fill = onDark ? "#ffffff" : "var(--brand)";
   return (
-    <svg
+    <Image
+      src={onDark ? "/logo-mark-white.png" : "/logo-mark.png"}
+      alt="Spruce &amp; Co"
       width={size}
       height={size}
-      viewBox="0 0 100 100"
+      priority
       className={className}
-      role="img"
-      aria-label="Spruce &amp; Co"
-    >
-      <text
-        x="50"
-        y="50"
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill={fill}
-        fontFamily="Georgia, 'Times New Roman', serif"
-        fontSize="62"
-        letterSpacing="-6"
-      >
-        SC
-      </text>
-    </svg>
+    />
   );
 }
 
-/** Monogram inside the navy tile, as used in the sidebar and on the login card. */
+/** Monogram on a navy tile — used where the surface behind is light. */
 export function LogoTile({ size = 36 }: { size?: number }) {
   return (
     <span
       className="inline-flex shrink-0 items-center justify-center rounded-lg bg-[var(--brand)]"
       style={{ width: size, height: size }}
     >
-      <Logo size={size * 0.72} onDark />
+      <Logo size={Math.round(size * 0.7)} onDark />
     </span>
   );
 }
