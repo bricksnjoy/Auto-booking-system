@@ -1,12 +1,12 @@
-export const money = (n: number | null | undefined, currency = "GBP") =>
-  new Intl.NumberFormat("en-GB", {
+export const money = (n: number | null | undefined, currency = "MVR") =>
+  new Intl.NumberFormat("en-MV", {
     style: "currency",
     currency,
     maximumFractionDigits: 0,
   }).format(Number(n ?? 0));
 
-export const moneyExact = (n: number | null | undefined, currency = "GBP") =>
-  new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(n ?? 0));
+export const moneyExact = (n: number | null | undefined, currency = "MVR") =>
+  new Intl.NumberFormat("en-MV", { style: "currency", currency }).format(Number(n ?? 0));
 
 export const pct = (n: number | null | undefined, digits = 1) =>
   `${Number(n ?? 0).toFixed(digits)}%`;

@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f6f7f5;
+  --bg: #f5f6f8;
   --surface: #ffffff;
-  --border: #e3e6e0;
-  --text: #16201a;
-  --muted: #5f6b62;
-  --brand: #2f5d43;
-  --brand-soft: #eaf1ec;
+  --border: #e2e5ec;
+  --text: #101828;
+  --muted: #5b6577;
+  --brand: #0a1f44;
+  --brand-soft: #e9edf5;
   --accent: #b8863b;
 }
 
@@ -21,6 +21,7 @@
   --color-brand-soft: var(--brand-soft);
   --color-accent: var(--accent);
   --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-serif: var(--font-serif), Georgia, "Times New Roman", serif;
 }
 
 html, body {

@@ -5,6 +5,7 @@ import { visibleFor, quickActionsFor } from "@/lib/nav";
 import { signOut } from "@/app/actions/auth";
 import { initials } from "@/lib/format";
 import { Badge } from "@/components/ui";
+import { LogoTile } from "@/components/logo";
 
 export default async function AppLayout({
   children,
@@ -31,9 +32,7 @@ export default async function AppLayout({
     <div className="flex min-h-screen">
       <aside className="hidden w-64 shrink-0 border-r border-[var(--border)] bg-[var(--surface)] md:block">
         <div className="flex h-16 items-center gap-2.5 border-b border-[var(--border)] px-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--brand)] text-sm font-bold text-white">
-            S
-          </div>
+          <LogoTile size={34} />
           <div className="leading-tight">
             <p className="text-sm font-semibold">Spruce &amp; Co</p>
             <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
