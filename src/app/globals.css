@@ -20,17 +20,17 @@
   --prussian: #1b263b;     /* Prussian Blue */
   --dusk: #415a77;         /* Dusk Blue */
   --denim: #778da9;        /* Dusty Denim */
-  --alabaster: #e8e6e0;    /* Alabaster Grey */
 
   --bg: #ffffff;           /* page */
-  --surface: var(--alabaster);  /* cards, sidebar, header */
-  --field: #ffffff;        /* inputs, sitting on a surface */
-  --border: #d5d2ca;
+  --surface: #ffffff;      /* cards, sidebar, header */
+  --field: #ffffff;        /* inputs */
+  --hover: #f4f6f8;        /* row and control hover, since surfaces are white */
+  --border: #dfe2e6;
   --text: var(--ink);
   --muted: var(--dusk);
   --brand: var(--prussian);
   --brand-hover: var(--dusk);
-  --brand-soft: #d3dae3;
+  --brand-soft: #e7ebf1;
   --accent: var(--denim);
 }
 
@@ -38,6 +38,7 @@
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-field: var(--field);
+  --color-hover: var(--hover);
   --color-border-soft: var(--border);
   --color-ink: var(--text);
   --color-muted: var(--muted);

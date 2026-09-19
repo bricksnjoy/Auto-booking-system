@@ -38,7 +38,7 @@ export default async function SiteDiariesPage() {
                 const proj = d.projects as unknown as { id: string; code: string; name: string } | null;
                 const by = d.profiles as unknown as { full_name: string } | null;
                 return (
-                  <tr key={d.id} className="hover:bg-[var(--bg)]">
+                  <tr key={d.id} className="hover:bg-[var(--hover)]">
                     <Td className="whitespace-nowrap text-xs font-medium">{date(d.diary_date)}</Td>
                     <Td>{proj ? <Link href={`/projects/${proj.id}`} className="font-mono text-xs hover:underline">{proj.code}</Link> : "—"}</Td>
                     <Td className="text-xs">

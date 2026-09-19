@@ -55,7 +55,7 @@ export default async function BillsPage() {
                   const cat = b.cost_categories as unknown as { name: string } | null;
                   const due = num(b.total) - num(b.amount_paid);
                   return (
-                    <tr key={b.id} className="hover:bg-[var(--bg)]">
+                    <tr key={b.id} className="hover:bg-[var(--hover)]">
                       <Td>
                         <span className="font-mono text-xs font-medium">{b.bill_no}</span>
                         <span className="block text-xs text-[var(--muted)]">{date(b.issue_date)}</span>

@@ -52,7 +52,7 @@ export default async function ClientsPage() {
               {list.map((c) => {
                 const s = stats.get(c.name);
                 return (
-                  <tr key={c.id} className="hover:bg-[var(--bg)]">
+                  <tr key={c.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <span className="font-medium">{c.name}</span>
                       {!c.is_active && <Badge value="inactive" />}

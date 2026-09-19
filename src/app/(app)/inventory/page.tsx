@@ -70,7 +70,7 @@ export default async function InventoryPage() {
                 {list.map((i) => {
                   const low = num(i.quantity_on_hand) <= num(i.reorder_level);
                   return (
-                    <tr key={i.id} className="hover:bg-[var(--bg)]">
+                    <tr key={i.id} className="hover:bg-[var(--hover)]">
                       <Td className="font-mono text-xs">{i.sku}</Td>
                       <Td className="font-medium">{i.name}</Td>
                       <Td className="text-xs text-[var(--muted)]">{i.category ?? "—"}</Td>

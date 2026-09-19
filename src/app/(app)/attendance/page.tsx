@@ -68,7 +68,7 @@ export default async function AttendancePage() {
                   const emp = a.employees as unknown as { employee_no: string; full_name: string; trade: string | null } | null;
                   const proj = a.projects as unknown as { id: string; code: string } | null;
                   return (
-                    <tr key={a.id} className="hover:bg-[var(--bg)]">
+                    <tr key={a.id} className="hover:bg-[var(--hover)]">
                       <Td className="whitespace-nowrap text-xs">{date(a.work_date)}</Td>
                       <Td>
                         <span className="text-sm">{emp?.full_name ?? "—"}</span>

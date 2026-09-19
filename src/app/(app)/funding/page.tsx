@@ -63,7 +63,7 @@ export default async function FundingPage() {
                 const raised = raisedOf(r);
                 const coverage = num(r.target_amount) > 0 ? (raised / num(r.target_amount)) * 100 : 0;
                 return (
-                  <tr key={r.id} className="hover:bg-[var(--bg)]">
+                  <tr key={r.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <Link href={`/funding/${r.id}`} className="font-medium hover:underline">
                         {r.name}

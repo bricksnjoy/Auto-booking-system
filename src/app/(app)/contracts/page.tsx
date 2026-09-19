@@ -42,7 +42,7 @@ export default async function ContractsPage() {
                 const proj = c.projects as unknown as { id: string; code: string } | null;
                 const endingSoon = c.status === "active" && c.end_date && new Date(c.end_date) <= soon;
                 return (
-                  <tr key={c.id} className="hover:bg-[var(--bg)]">
+                  <tr key={c.id} className="hover:bg-[var(--hover)]">
                     <Td className="font-mono text-xs">{c.ref}</Td>
                     <Td className="font-medium">{c.title}</Td>
                     <Td>

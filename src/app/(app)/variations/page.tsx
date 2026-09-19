@@ -48,7 +48,7 @@ export default async function VariationsPage() {
                   const proj = v.projects as unknown as { id: string; code: string } | null;
                   const cost = num(v.cost_impact);
                   return (
-                    <tr key={v.id} className="hover:bg-[var(--bg)]">
+                    <tr key={v.id} className="hover:bg-[var(--hover)]">
                       <Td className="font-mono text-xs">{v.ref}</Td>
                       <Td>
                         <span className="font-medium">{v.title}</span>
@@ -83,7 +83,7 @@ export default async function VariationsPage() {
                   const proj = r.projects as unknown as { id: string; code: string } | null;
                   const late = r.status === "open" && r.required_by && new Date(r.required_by) < today;
                   return (
-                    <tr key={r.id} className="hover:bg-[var(--bg)]">
+                    <tr key={r.id} className="hover:bg-[var(--hover)]">
                       <Td className="font-mono text-xs">{r.ref}</Td>
                       <Td>
                         <span className="font-medium">{r.subject}</span>

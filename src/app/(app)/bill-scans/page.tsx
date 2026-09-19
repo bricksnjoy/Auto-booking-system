@@ -62,7 +62,7 @@ export default async function BillScansPage() {
                   const proj = s.projects as unknown as { id: string; code: string } | null;
                   const conf = s.confidence === null ? null : num(s.confidence);
                   return (
-                    <tr key={s.id} className="hover:bg-[var(--bg)]">
+                    <tr key={s.id} className="hover:bg-[var(--hover)]">
                       <Td>
                         <Link href={`/bill-scans/${s.id}`} className="font-medium hover:underline">
                           {s.bill_no || s.original_filename || "Untitled bill"}

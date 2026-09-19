@@ -52,7 +52,7 @@ export default async function PurchaseOrdersPage() {
                   const overdue = ["approved", "sent", "part_received"].includes(p.status)
                     && p.expected_date && new Date(p.expected_date) < new Date();
                   return (
-                    <tr key={p.id} className="hover:bg-[var(--bg)]">
+                    <tr key={p.id} className="hover:bg-[var(--hover)]">
                       <Td className="font-mono text-xs font-medium">{p.po_no}</Td>
                       <Td>{v?.name ?? "—"}</Td>
                       <Td>{proj ? <Link href={`/projects/${proj.id}`} className="font-mono text-xs hover:underline">{proj.code}</Link> : "—"}</Td>
@@ -82,7 +82,7 @@ export default async function PurchaseOrdersPage() {
                   const proj = p.projects as unknown as { id: string; code: string } | null;
                   const who = p.profiles as unknown as { full_name: string } | null;
                   return (
-                    <tr key={p.id} className="hover:bg-[var(--bg)]">
+                    <tr key={p.id} className="hover:bg-[var(--hover)]">
                       <Td className="font-mono text-xs">{p.ref}</Td>
                       <Td className="font-medium">{p.title}</Td>
                       <Td>{proj ? <Link href={`/projects/${proj.id}`} className="font-mono text-xs hover:underline">{proj.code}</Link> : "—"}</Td>

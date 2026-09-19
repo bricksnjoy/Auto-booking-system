@@ -119,7 +119,7 @@ export default async function PnlPage() {
                 const mine = byProject.get(r.id);
                 const profit = num(r.profit);
                 return (
-                  <tr key={r.id} className="hover:bg-[var(--bg)]">
+                  <tr key={r.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <Link href={`/projects/${r.id}`} className="font-medium hover:underline">
                         {r.project_name}
@@ -158,7 +158,7 @@ export default async function PnlPage() {
               })}
             </tbody>
             <tfoot>
-              <tr className="bg-[var(--bg)] font-semibold">
+              <tr className="bg-[var(--hover)] font-semibold">
                 <Td>Total</Td>
                 <Td right>{money(t.value)}</Td>
                 <Td right>{money(t.variation)}</Td>

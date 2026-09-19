@@ -42,7 +42,7 @@ export default async function PayrollPage() {
               </tr></thead>
               <tbody>
                 {runList.map((r) => (
-                  <tr key={r.id} className="hover:bg-[var(--bg)]">
+                  <tr key={r.id} className="hover:bg-[var(--hover)]">
                     <Td className="font-mono text-xs font-medium">{r.ref}</Td>
                     <Td className="text-xs">{date(r.period_start)} → {date(r.period_end)}</Td>
                     <Td><Badge value={r.status} /></Td>
@@ -72,7 +72,7 @@ export default async function PayrollPage() {
                   const run = s.payroll_runs as unknown as { ref: string } | null;
                   const proj = s.projects as unknown as { code: string } | null;
                   return (
-                    <tr key={s.id} className="hover:bg-[var(--bg)]">
+                    <tr key={s.id} className="hover:bg-[var(--hover)]">
                       <Td>
                         <span className="text-sm">{emp?.full_name ?? "—"}</span>
                         <span className="block font-mono text-xs text-[var(--muted)]">{emp?.employee_no}</span>

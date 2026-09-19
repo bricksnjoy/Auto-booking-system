@@ -52,7 +52,7 @@ export default async function DocumentsPage() {
                   const inv = d.investors as unknown as { id: string; name: string } | null;
                   const ven = d.vendors as unknown as { id: string; name: string } | null;
                   return (
-                    <tr key={d.id} className="hover:bg-[var(--bg)]">
+                    <tr key={d.id} className="hover:bg-[var(--hover)]">
                       <Td>
                         <span className="font-medium">{d.name}</span>
                         <span className="block font-mono text-xs text-[var(--muted)]">{d.storage_path}</span>

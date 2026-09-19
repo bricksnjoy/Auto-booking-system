@@ -56,7 +56,7 @@ export default async function SafetyPage() {
               {list.map((i) => {
                 const proj = i.projects as unknown as { id: string; code: string } | null;
                 return (
-                  <tr key={i.id} className="hover:bg-[var(--bg)]">
+                  <tr key={i.id} className="hover:bg-[var(--hover)]">
                     <Td className="whitespace-nowrap text-xs">{date(i.incident_date)}</Td>
                     <Td className="text-xs font-medium">
                       {titleize(i.incident_type)}

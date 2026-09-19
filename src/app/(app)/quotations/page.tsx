@@ -42,7 +42,7 @@ export default async function QuotationsPage() {
                 const proj = q.projects as unknown as { id: string; code: string } | null;
                 const expired = q.status === "sent" && q.valid_until && new Date(q.valid_until) < today;
                 return (
-                  <tr key={q.id} className="hover:bg-[var(--bg)]">
+                  <tr key={q.id} className="hover:bg-[var(--hover)]">
                     <Td className="font-mono text-xs font-medium">{q.quote_no}</Td>
                     <Td>{q.title}</Td>
                     <Td>{client?.name ?? "—"}</Td>

@@ -49,7 +49,7 @@ export default async function CrewsPage() {
                 const sup = c.employees as unknown as { full_name: string } | null;
                 const actual = actualHeadcount.get(c.id);
                 return (
-                  <tr key={c.id} className="hover:bg-[var(--bg)]">
+                  <tr key={c.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <span className="font-medium">{c.name}</span>
                       {!c.is_active && <span className="ml-1 text-xs text-[var(--muted)]">(inactive)</span>}

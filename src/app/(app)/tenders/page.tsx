@@ -60,7 +60,7 @@ export default async function TendersPage() {
                 const client = t.clients as unknown as { name: string } | null;
                 const owner = t.profiles as unknown as { full_name: string } | null;
                 return (
-                  <tr key={t.id} className="hover:bg-[var(--bg)]">
+                  <tr key={t.id} className="hover:bg-[var(--hover)]">
                     <Td className="font-mono text-xs">{t.ref}</Td>
                     <Td className="font-medium">{t.title}</Td>
                     <Td>{client?.name ?? "—"}</Td>

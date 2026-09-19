@@ -67,7 +67,7 @@ export default async function RetentionPage() {
                 const overdue = !r.released_date && r.release_due_date && new Date(r.release_due_date) <= today;
                 const isIn = r.direction === "in";
                 return (
-                  <tr key={r.id} className="hover:bg-[var(--bg)]">
+                  <tr key={r.id} className="hover:bg-[var(--hover)]">
                     <Td>{proj ? <Link href={`/projects/${proj.id}`} className="hover:underline">{proj.name}</Link> : "—"}</Td>
                     <Td className="text-sm">{client?.name ?? vendor?.name ?? "—"}</Td>
                     <Td>

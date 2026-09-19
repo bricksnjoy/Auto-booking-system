@@ -43,7 +43,7 @@ export default async function TeamPage() {
               </tr></thead>
               <tbody>
                 {list.map((p) => (
-                  <tr key={p.id} className="hover:bg-[var(--bg)]">
+                  <tr key={p.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <div className="flex items-center gap-2.5">
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--brand-soft)] text-xs font-semibold text-[var(--brand)]">

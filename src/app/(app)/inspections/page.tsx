@@ -61,7 +61,7 @@ export default async function InspectionsPage() {
                   const who = s.profiles as unknown as { full_name: string } | null;
                   const late = s.status !== "completed" && s.due_date && new Date(s.due_date) < today;
                   return (
-                    <tr key={s.id} className="hover:bg-[var(--bg)]">
+                    <tr key={s.id} className="hover:bg-[var(--hover)]">
                       <Td>
                         <span className="font-medium">{s.title}</span>
                         {s.description && <span className="block max-w-xs truncate text-xs text-[var(--muted)]">{s.description}</span>}

@@ -57,7 +57,7 @@ export default async function ExpensesPage() {
                   const emp = e.employees as unknown as { full_name: string } | null;
                   const who = e.profiles as unknown as { full_name: string } | null;
                   return (
-                    <tr key={e.id} className="hover:bg-[var(--bg)]">
+                    <tr key={e.id} className="hover:bg-[var(--hover)]">
                       <Td className="whitespace-nowrap text-xs">{date(e.expense_date)}</Td>
                       <Td>
                         <span className="text-sm">{e.description}</span>

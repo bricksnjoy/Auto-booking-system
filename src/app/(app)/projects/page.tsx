@@ -61,7 +61,7 @@ export default async function ProjectsPage() {
               {projects.map((p) => {
                 const variance = num(p.budget_variance);
                 return (
-                  <tr key={p.id} className="hover:bg-[var(--bg)]">
+                  <tr key={p.id} className="hover:bg-[var(--hover)]">
                     <Td className="font-mono text-xs text-[var(--muted)]">{p.code}</Td>
                     <Td>
                       <Link href={`/projects/${p.id}`} className="font-medium hover:underline">

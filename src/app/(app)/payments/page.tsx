@@ -50,7 +50,7 @@ export default async function PaymentsPage() {
                   const proj = p.projects as unknown as { id: string; code: string } | null;
                   const isIn = p.direction === "in";
                   return (
-                    <tr key={p.id} className="hover:bg-[var(--bg)]">
+                    <tr key={p.id} className="hover:bg-[var(--hover)]">
                       <Td className="text-xs">{date(p.paid_date)}</Td>
                       <Td><span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${isIn ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{isIn ? "In" : "Out"}</span></Td>
                       <Td className="font-mono text-xs">{inv?.invoice_no ?? bill?.bill_no ?? "—"}</Td>

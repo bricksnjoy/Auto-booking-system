@@ -99,7 +99,7 @@ export default async function TasksPage() {
                 const a = t.profiles as unknown as { full_name: string } | null;
                 const late = t.due_date && new Date(t.due_date) < today;
                 return (
-                  <tr key={t.id} className="hover:bg-[var(--bg)]">
+                  <tr key={t.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <span className="font-medium">{t.title}</span>
                       {t.description && <span className="block text-xs text-[var(--muted)]">{t.description}</span>}

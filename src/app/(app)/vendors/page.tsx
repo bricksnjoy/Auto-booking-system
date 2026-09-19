@@ -58,7 +58,7 @@ export default async function VendorsPage() {
                 const insExp = v.insurance_expiry && new Date(v.insurance_expiry) <= soon;
                 const licExp = v.licence_expiry && new Date(v.licence_expiry) <= soon;
                 return (
-                  <tr key={v.id} className="hover:bg-[var(--bg)]">
+                  <tr key={v.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <span className="font-medium">{v.name}</span>
                       {v.contact_name && <span className="block text-xs text-[var(--muted)]">{v.contact_name}</span>}

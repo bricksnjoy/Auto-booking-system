@@ -66,7 +66,7 @@ export default async function InvestorsPage() {
               {investors.map((inv) => {
                 const r = byInvestor.get(inv.id);
                 return (
-                  <tr key={inv.id} className="hover:bg-[var(--bg)]">
+                  <tr key={inv.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <Link href={`/investors/${inv.id}`} className="font-medium hover:underline">
                         {inv.name}

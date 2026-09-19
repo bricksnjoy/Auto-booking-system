@@ -56,7 +56,7 @@ export default async function InvoicesPage() {
                 const proj = i.projects as unknown as { id: string; code: string } | null;
                 const due = num(i.total) - num(i.amount_paid);
                 return (
-                  <tr key={i.id} className="hover:bg-[var(--bg)]">
+                  <tr key={i.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <Link href={`/invoices/${i.id}`} className="font-mono text-xs font-medium hover:underline">
                         {i.invoice_no}

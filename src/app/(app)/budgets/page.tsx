@@ -58,7 +58,7 @@ export default async function BudgetsPage() {
                 const variance = budget - spent;
                 const usage = budget > 0 ? (spent / budget) * 100 : 0;
                 return (
-                  <tr key={p.id} className="hover:bg-[var(--bg)]">
+                  <tr key={p.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <Link href={`/projects/${p.id}`} className="font-medium hover:underline">{p.name}</Link>
                       <span className="block font-mono text-xs text-[var(--muted)]">{p.code}</span>
@@ -104,7 +104,7 @@ export default async function BudgetsPage() {
                 const spent = actual.get(`${l.project_id}::${l.category_id ?? "none"}`) ?? 0;
                 const variance = num(l.budget_amount) - spent;
                 return (
-                  <tr key={l.id} className="hover:bg-[var(--bg)]">
+                  <tr key={l.id} className="hover:bg-[var(--hover)]">
                     <Td>{proj ? <Link href={`/projects/${proj.id}`} className="font-mono text-xs hover:underline">{proj.code}</Link> : "—"}</Td>
                     <Td className="text-xs">{cat?.name ?? "Uncategorised"}</Td>
                     <Td className="text-sm">{l.description}</Td>

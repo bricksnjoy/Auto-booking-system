@@ -132,7 +132,7 @@ export default async function DashboardPage() {
                 {active.map((p) => {
                   const m = num(p.gross_margin);
                   return (
-                    <tr key={p.id} className="hover:bg-[var(--bg)]">
+                    <tr key={p.id} className="hover:bg-[var(--hover)]">
                       <Td>
                         <Link href={`/projects/${p.id}`} className="font-medium hover:underline">
                           {p.name}

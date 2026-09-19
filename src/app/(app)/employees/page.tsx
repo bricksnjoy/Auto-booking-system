@@ -40,7 +40,7 @@ export default async function EmployeesPage() {
               {list.map((e) => {
                 const crew = e.crews as unknown as { name: string } | null;
                 return (
-                  <tr key={e.id} className="hover:bg-[var(--bg)]">
+                  <tr key={e.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <span className="font-medium">{e.full_name}</span>
                       <span className="block font-mono text-xs text-[var(--muted)]">{e.employee_no}</span>

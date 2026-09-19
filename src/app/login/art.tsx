@@ -45,7 +45,7 @@ export function LoginArt() {
       </g>
 
       {/* ---- floor plan: interior design ---- */}
-      <g stroke="#e8e6e0" fill="none" opacity="0.5" strokeWidth="1.6">
+      <g stroke="#ffffff" fill="none" opacity="0.5" strokeWidth="1.6">
         <path d="M70 120 H330 V300 H70 Z" />
         <path d="M70 215 H196" />
         <path d="M196 215 V300" />
@@ -81,7 +81,7 @@ export function LoginArt() {
       </g>
 
       {/* windows */}
-      <g fill="#e8e6e0">
+      <g fill="#ffffff">
         {Array.from({ length: 9 }).map((_, r) =>
           Array.from({ length: 3 }).map((__, c) => (
             <rect
@@ -121,7 +121,7 @@ export function LoginArt() {
       </g>
 
       {/* ---- tower crane ---- */}
-      <g stroke="#e8e6e0" fill="none" opacity="0.62" strokeWidth="1.6">
+      <g stroke="#ffffff" fill="none" opacity="0.62" strokeWidth="1.6">
         <path d="M600 210 V560" />
         <path d="M592 210 H608" />
         <path d="M470 210 H720" />

@@ -57,7 +57,7 @@ export default async function EquipmentPage() {
                 {list.map((e) => {
                   const dueSoon = e.inspection_due && new Date(e.inspection_due) <= soon;
                   return (
-                    <tr key={e.id} className="hover:bg-[var(--bg)]">
+                    <tr key={e.id} className="hover:bg-[var(--hover)]">
                       <Td>
                         <span className="font-medium">{e.name}</span>
                         <span className="block font-mono text-xs text-[var(--muted)]">

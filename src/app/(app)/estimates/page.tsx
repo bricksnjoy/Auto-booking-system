@@ -50,7 +50,7 @@ export default async function EstimatesPage() {
                 const client = e.clients as unknown as { name: string } | null;
                 const base = baseCost.get(e.id) ?? 0;
                 return (
-                  <tr key={e.id} className="hover:bg-[var(--bg)]">
+                  <tr key={e.id} className="hover:bg-[var(--hover)]">
                     <Td className="font-mono text-xs">
                       {e.ref}
                       {e.version > 1 && <span className="ml-1 text-[var(--muted)]">v{e.version}</span>}

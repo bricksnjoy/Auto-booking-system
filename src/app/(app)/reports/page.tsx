@@ -78,7 +78,7 @@ export default async function ReportsPage() {
               </tr></thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id} className="hover:bg-[var(--bg)]">
+                  <tr key={r.id} className="hover:bg-[var(--hover)]">
                     <Td>
                       <Link href={`/projects/${r.id}`} className="font-medium hover:underline">{r.name}</Link>
                       <span className="block font-mono text-xs text-[var(--muted)]">{r.code}</span>
@@ -101,7 +101,7 @@ export default async function ReportsPage() {
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-[var(--bg)] font-semibold">
+                <tr className="bg-[var(--hover)] font-semibold">
                   <Td>Total</Td>
                   <Td right>{money(rows.reduce((s, r) => s + num(r.contract_value), 0))}</Td>
                   <Td right>{money(rows.reduce((s, r) => s + num(r.approved_variations), 0))}</Td>

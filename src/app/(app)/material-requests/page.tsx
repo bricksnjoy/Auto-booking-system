@@ -51,7 +51,7 @@ export default async function MaterialRequestsPage() {
                 const c = counts.get(r.id);
                 const isLate = ["submitted", "approved"].includes(r.status) && r.needed_by && new Date(r.needed_by) < today;
                 return (
-                  <tr key={r.id} className="hover:bg-[var(--bg)]">
+                  <tr key={r.id} className="hover:bg-[var(--hover)]">
                     <Td className="font-mono text-xs font-medium">{r.ref}</Td>
                     <Td>{proj ? <Link href={`/projects/${proj.id}`} className="hover:underline">{proj.name}</Link> : "—"}</Td>
                     <Td className="text-xs text-[var(--muted)]">{who?.full_name ?? "—"}</Td>
