@@ -41,9 +41,13 @@ export default function LoginPage() {
             <p className="font-sans text-[10px] uppercase tracking-[0.26em] text-[var(--denim)]">
               Construction &amp; Interior Design
             </p>
-            <p className="mt-3.5 font-display text-[30px] font-bold leading-[1.18] text-white">
-              <span className="block">Raising the Standard,</span>
-              <span className="block">one build at a time.</span>
+            {/* Both lines are set at the same point size. The second is nudged
+                up slightly because it is all lowercase, and the display serif
+                has a small x-height — without it the line reads smaller than
+                the capitalised one above. */}
+            <p className="mt-3.5 font-display font-bold leading-[1.16] text-white">
+              <span className="block text-[30px]">Raising the Standard,</span>
+              <span className="block text-[32px]">one build at a time.</span>
             </p>
           </div>
         </div>
