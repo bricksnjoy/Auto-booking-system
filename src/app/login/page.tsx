@@ -7,9 +7,9 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mb-5 flex justify-center"><Logo size={72} /></div>
+          <div className="mb-4 flex justify-center"><Logo size={104} /></div>
           <div className="flex justify-center"><Wordmark size="lg" /></div>
-          <p className="mt-1 text-sm text-[var(--muted)]">
+          <p className="mt-3 text-sm text-[var(--muted)]">
             Back office — sign in to continue
           </p>
         </div>

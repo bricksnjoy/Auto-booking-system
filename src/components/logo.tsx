@@ -40,7 +40,9 @@ export function LogoTile({ size = 36 }: { size?: number }) {
 /**
  * The company wordmark: name in the brand display face (Boston Angel Bold,
  * falling back to Playfair Display until the licensed file is installed),
- * with PRIVATE LIMITED beneath it in Poppins.
+ * with PRIVATE LIMITED beneath it in Poppins. Proportions follow the
+ * printed lockup — the second line sits at roughly two thirds the cap
+ * height of the name, in the same ink rather than a lighter grey.
  */
 export function Wordmark({
   size = "md",
@@ -50,13 +52,13 @@ export function Wordmark({
   onDark?: boolean;
 }) {
   const scale = {
-    sm: { name: "text-[15px]", sub: "text-[8px] tracking-[0.18em]" },
-    md: { name: "text-xl", sub: "text-[9px] tracking-[0.2em]" },
-    lg: { name: "text-3xl", sub: "text-[11px] tracking-[0.22em]" },
+    sm: { name: "text-[15px]", sub: "text-[10px]", gap: "mt-0.5" },
+    md: { name: "text-xl", sub: "text-[13px]", gap: "mt-1" },
+    lg: { name: "text-3xl", sub: "text-[19px]", gap: "mt-1.5" },
   }[size];
 
   return (
-    <span className="flex flex-col leading-none">
+    <span className="flex flex-col items-center leading-none">
       <span
         className={`font-display font-bold ${scale.name} ${
           onDark ? "text-white" : "text-[var(--brand)]"
@@ -65,8 +67,8 @@ export function Wordmark({
         Spruce &amp; Co
       </span>
       <span
-        className={`mt-1 font-sans font-normal uppercase ${scale.sub} ${
-          onDark ? "text-white/70" : "text-[var(--muted)]"
+        className={`${scale.gap} font-sans font-normal uppercase tracking-[0.02em] ${scale.sub} ${
+          onDark ? "text-white/85" : "text-[var(--text)]"
         }`}
       >
         Private Limited
