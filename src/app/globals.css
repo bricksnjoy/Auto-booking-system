@@ -20,22 +20,24 @@
   --prussian: #1b263b;     /* Prussian Blue */
   --dusk: #415a77;         /* Dusk Blue */
   --denim: #778da9;        /* Dusty Denim */
-  --alabaster: #e0e1dd;    /* Alabaster Grey */
+  --alabaster: #e8e6e0;    /* Alabaster Grey */
 
-  --bg: var(--alabaster);
-  --surface: #ffffff;
-  --border: #c9ccc6;
+  --bg: #ffffff;           /* page */
+  --surface: var(--alabaster);  /* cards, sidebar, header */
+  --field: #ffffff;        /* inputs, sitting on a surface */
+  --border: #d5d2ca;
   --text: var(--ink);
   --muted: var(--dusk);
   --brand: var(--prussian);
   --brand-hover: var(--dusk);
-  --brand-soft: #d4dae2;
+  --brand-soft: #d3dae3;
   --accent: var(--denim);
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
+  --color-field: var(--field);
   --color-border-soft: var(--border);
   --color-ink: var(--text);
   --color-muted: var(--muted);

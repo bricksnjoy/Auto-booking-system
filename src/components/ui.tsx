@@ -213,7 +213,7 @@ export function Button({
   const styles =
     variant === "primary"
       ? "bg-[var(--brand)] text-white hover:bg-[var(--brand-hover)]"
-      : "border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--brand-soft)]";
+      : "border border-[var(--border)] bg-[var(--field)] hover:bg-[var(--brand-soft)]";
   const cls = `${base} ${styles} ${className}`;
   if (href) return <Link href={href} className={cls}>{children}</Link>;
   return <button type={type} className={cls}>{children}</button>;

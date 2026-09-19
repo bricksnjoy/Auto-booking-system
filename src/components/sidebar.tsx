@@ -51,7 +51,7 @@ export function Sidebar({
               <Link
                 key={a.href}
                 href={a.href}
-                className="rounded-md bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--brand)] transition-colors hover:bg-white"
+                className="rounded-md bg-[var(--field)] px-2.5 py-1.5 text-xs font-medium text-[var(--brand)] transition-colors hover:bg-white"
               >
                 + {a.label}
               </Link>
