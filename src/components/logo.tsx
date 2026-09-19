@@ -54,9 +54,9 @@ export function Wordmark({
   onDark?: boolean;
 }) {
   const scale = {
-    sm: { name: "text-[15px]", sub: "text-[11px]", gap: "mt-0.5" },
-    md: { name: "text-xl", sub: "text-[15px]", gap: "mt-1" },
-    lg: { name: "text-3xl", sub: "text-[22px]", gap: "mt-1.5" },
+    sm: { name: "text-[15px]", sub: "text-[10px]", gap: "mt-0.5" },
+    md: { name: "text-xl", sub: "text-[13px]", gap: "mt-1" },
+    lg: { name: "text-3xl", sub: "text-[18px]", gap: "mt-1.5" },
   }[size];
 
   return (
