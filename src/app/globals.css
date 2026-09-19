@@ -36,12 +36,13 @@
   --color-brand-hover: var(--brand-hover);
   --color-brand-soft: var(--brand-soft);
   --color-accent: var(--accent);
-  --font-sans: var(--font-dm-sans), var(--font-geist-sans), system-ui, sans-serif;
+  --font-sans: var(--font-poppins), system-ui, sans-serif;
   --font-display: "Boston Angel", var(--font-playfair), Georgia, serif;
-  --font-body: var(--font-dm-sans), var(--font-geist-sans), system-ui, sans-serif;
+  --font-body: var(--font-poppins), system-ui, sans-serif;
 }
 
 html, body {
+  font-family: var(--font-poppins), system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;

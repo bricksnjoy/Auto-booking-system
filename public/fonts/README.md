@@ -17,6 +17,6 @@ closest high-contrast serif available on Google Fonts.
 To convert an .otf or .ttf to .woff2, use https://cloudconvert.com/otf-to-woff2
 or `woff2_compress BostonAngel-Bold.otf`.
 
-## DM Sans (body — "PRIVATE LIMITED" and UI text)
+## Poppins (body — "PRIVATE LIMITED" and all UI text)
 
 Loaded from Google Fonts in `src/app/layout.tsx`. Nothing to install.

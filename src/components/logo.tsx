@@ -40,7 +40,7 @@ export function LogoTile({ size = 36 }: { size?: number }) {
 /**
  * The company wordmark: name in the brand display face (Boston Angel Bold,
  * falling back to Playfair Display until the licensed file is installed),
- * with PRIVATE LIMITED beneath it in DM Sans.
+ * with PRIVATE LIMITED beneath it in Poppins.
  */
 export function Wordmark({
   size = "md",
