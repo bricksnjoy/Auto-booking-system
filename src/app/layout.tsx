@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
-import { Playfair_Display, Poppins } from "next/font/google";
+import { Cormorant_Garamond, Poppins } from "next/font/google";
 import "./globals.css";
 
-const playfair = Playfair_Display({ variable: "--font-playfair", subsets: ["latin"] });
+const cormorant = Cormorant_Garamond({
+  variable: "--font-fallback-serif",
+  subsets: ["latin"],
+  weight: ["600", "700"],
+});
 const poppins = Poppins({
   variable: "--font-poppins",
   subsets: ["latin"],
@@ -19,7 +23,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${poppins.variable} ${playfair.variable} antialiased`}>{children}</body>
+      <body className={`${poppins.variable} ${cormorant.variable} antialiased`}>{children}</body>
     </html>
   );
 }

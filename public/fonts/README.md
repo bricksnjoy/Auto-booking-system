@@ -11,7 +11,7 @@ change needed. Any one of these filenames works:
     BostonAngel-Bold.otf
     BostonAngel-Bold.ttf
 
-Until a file is present the stack falls back to Playfair Display, the
+Until a file is present the stack falls back to Cormorant Garamond, the
 closest high-contrast serif available on Google Fonts.
 
 To convert an .otf or .ttf to .woff2, use https://cloudconvert.com/otf-to-woff2

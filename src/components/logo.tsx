@@ -39,10 +39,12 @@ export function LogoTile({ size = 36 }: { size?: number }) {
 
 /**
  * The company wordmark: name in the brand display face (Boston Angel Bold,
- * falling back to Playfair Display until the licensed file is installed),
- * with PRIVATE LIMITED beneath it in Poppins. Proportions follow the
- * printed lockup — the second line sits at roughly two thirds the cap
- * height of the name, in the same ink rather than a lighter grey.
+ * falling back to Cormorant Garamond until the licensed file is installed),
+ * with PRIVATE LIMITED beneath it in Poppins.
+ *
+ * The ampersand is drawn from a plain serif rather than the display face —
+ * decorative faces tend to ship an "Et"-style swash ampersand, which is not
+ * the form used in the company lockup.
  */
 export function Wordmark({
   size = "md",
@@ -52,9 +54,9 @@ export function Wordmark({
   onDark?: boolean;
 }) {
   const scale = {
-    sm: { name: "text-[15px]", sub: "text-[10px]", gap: "mt-0.5" },
-    md: { name: "text-xl", sub: "text-[13px]", gap: "mt-1" },
-    lg: { name: "text-3xl", sub: "text-[19px]", gap: "mt-1.5" },
+    sm: { name: "text-[15px]", sub: "text-[11px]", gap: "mt-0.5" },
+    md: { name: "text-xl", sub: "text-[15px]", gap: "mt-1" },
+    lg: { name: "text-3xl", sub: "text-[22px]", gap: "mt-1.5" },
   }[size];
 
   return (
@@ -64,7 +66,9 @@ export function Wordmark({
           onDark ? "text-white" : "text-[var(--brand)]"
         }`}
       >
-        Spruce &amp; Co
+        Spruce{" "}
+        <span style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>&amp;</span>{" "}
+        Co
       </span>
       <span
         className={`${scale.gap} font-sans font-normal uppercase tracking-[0.02em] ${scale.sub} ${
