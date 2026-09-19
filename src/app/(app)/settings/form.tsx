@@ -88,7 +88,7 @@ export function SettingsForm({ settings, canEdit }: { settings: Settings | null;
 
       {canEdit && (
         <button type="submit" disabled={pending}
-          className="rounded-lg bg-[var(--brand)] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#264c37] disabled:opacity-60">
+          className="rounded-lg bg-[var(--brand)] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-60">
           {pending ? "Saving…" : "Save settings"}
         </button>
       )}

@@ -238,7 +238,7 @@ export function ScanEditor({
                 <p className="w-full rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{confirmState.error}</p>
               )}
               <button type="submit" disabled={confirming}
-                className="rounded-lg bg-[var(--brand)] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#264c37] disabled:opacity-60">
+                className="rounded-lg bg-[var(--brand)] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-60">
                 {confirming ? "Confirming…" : "Confirm bill"}
               </button>
             </form>

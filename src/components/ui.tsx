@@ -212,7 +212,7 @@ export function Button({
     "inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-sm font-medium transition-colors";
   const styles =
     variant === "primary"
-      ? "bg-[var(--brand)] text-white hover:bg-[#264c37]"
+      ? "bg-[var(--brand)] text-white hover:bg-[var(--brand-hover)]"
       : "border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--brand-soft)]";
   const cls = `${base} ${styles} ${className}`;
   if (href) return <Link href={href} className={cls}>{children}</Link>;
