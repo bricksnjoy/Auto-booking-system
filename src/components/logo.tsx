@@ -36,3 +36,41 @@ export function LogoTile({ size = 36 }: { size?: number }) {
     </span>
   );
 }
+
+/**
+ * The company wordmark: name in the brand display face (Boston Angel Bold,
+ * falling back to Playfair Display until the licensed file is installed),
+ * with PRIVATE LIMITED beneath it in DM Sans.
+ */
+export function Wordmark({
+  size = "md",
+  onDark = false,
+}: {
+  size?: "sm" | "md" | "lg";
+  onDark?: boolean;
+}) {
+  const scale = {
+    sm: { name: "text-[15px]", sub: "text-[8px] tracking-[0.18em]" },
+    md: { name: "text-xl", sub: "text-[9px] tracking-[0.2em]" },
+    lg: { name: "text-3xl", sub: "text-[11px] tracking-[0.22em]" },
+  }[size];
+
+  return (
+    <span className="flex flex-col leading-none">
+      <span
+        className={`font-display font-bold ${scale.name} ${
+          onDark ? "text-white" : "text-[var(--brand)]"
+        }`}
+      >
+        Spruce &amp; Co
+      </span>
+      <span
+        className={`mt-1 font-sans font-normal uppercase ${scale.sub} ${
+          onDark ? "text-white/70" : "text-[var(--muted)]"
+        }`}
+      >
+        Private Limited
+      </span>
+    </span>
+  );
+}

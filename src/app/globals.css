@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* Brand display face. Drop the licensed files into public/fonts/ and they are
+   picked up automatically; until then the stack falls back to Playfair Display,
+   the closest high-contrast serif available. */
+@font-face {
+  font-family: "Boston Angel";
+  src: url("/fonts/BostonAngel-Bold.woff2") format("woff2"),
+       url("/fonts/BostonAngel-Bold.woff") format("woff"),
+       url("/fonts/BostonAngel-Bold.otf") format("opentype"),
+       url("/fonts/BostonAngel-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #f5f6f8;
   --surface: #ffffff;
@@ -22,8 +36,9 @@
   --color-brand-hover: var(--brand-hover);
   --color-brand-soft: var(--brand-soft);
   --color-accent: var(--accent);
-  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
-  --font-serif: var(--font-serif), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-dm-sans), var(--font-geist-sans), system-ui, sans-serif;
+  --font-display: "Boston Angel", var(--font-playfair), Georgia, serif;
+  --font-body: var(--font-dm-sans), var(--font-geist-sans), system-ui, sans-serif;
 }
 
 html, body {

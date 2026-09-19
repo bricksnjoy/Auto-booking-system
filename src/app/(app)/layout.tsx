@@ -5,7 +5,7 @@ import { visibleFor, quickActionsFor } from "@/lib/nav";
 import { signOut } from "@/app/actions/auth";
 import { initials } from "@/lib/format";
 import { Badge } from "@/components/ui";
-import { Logo } from "@/components/logo";
+import { Logo, Wordmark } from "@/components/logo";
 
 export default async function AppLayout({
   children,
@@ -33,12 +33,7 @@ export default async function AppLayout({
       <aside className="hidden w-64 shrink-0 border-r border-[var(--border)] bg-[var(--surface)] md:block">
         <div className="flex h-16 items-center gap-2.5 border-b border-[var(--border)] px-5">
           <Logo size={34} />
-          <div className="leading-tight">
-            <p className="font-serif text-[15px] leading-tight">Spruce &amp; Co</p>
-            <p className="text-[9px] uppercase tracking-[0.12em] text-[var(--muted)]">
-              Construction &amp; Interiors
-            </p>
-          </div>
+          <Wordmark size="sm" />
         </div>
         <div className="max-h-[calc(100vh-4rem)] overflow-y-auto">
           <Sidebar groups={groups} quickActions={quickActions} />
