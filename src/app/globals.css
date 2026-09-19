@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 /* Brand display face. Drop the licensed files into public/fonts/ and they are
-   picked up automatically; until then the stack falls back to Playfair Display,
-   the closest high-contrast serif available. */
+   picked up automatically; until then the stack falls back to Cormorant
+   Garamond. */
 @font-face {
   font-family: "Boston Angel";
   src: url("/fonts/BostonAngel-Bold.woff2") format("woff2"),
@@ -15,15 +15,22 @@
 }
 
 :root {
-  --bg: #f5f6f8;
+  /* Ink Black / Prussian Blue palette */
+  --ink: #0d1b2a;          /* Ink Black */
+  --prussian: #1b263b;     /* Prussian Blue */
+  --dusk: #415a77;         /* Dusk Blue */
+  --denim: #778da9;        /* Dusty Denim */
+  --alabaster: #e0e1dd;    /* Alabaster Grey */
+
+  --bg: var(--alabaster);
   --surface: #ffffff;
-  --border: #e2e5ec;
-  --text: #101828;
-  --muted: #5b6577;
-  --brand: #051d40;
-  --brand-hover: #0a3168;
-  --brand-soft: #e8edf4;
-  --accent: #b8863b;
+  --border: #c9ccc6;
+  --text: var(--ink);
+  --muted: var(--dusk);
+  --brand: var(--prussian);
+  --brand-hover: var(--dusk);
+  --brand-soft: #d4dae2;
+  --accent: var(--denim);
 }
 
 @theme inline {
