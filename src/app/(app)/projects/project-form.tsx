@@ -1,9 +1,11 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createProject, updateProject } from "@/app/actions/projects";
 import type { Result } from "@/app/actions/projects";
+import { ClientModal } from "@/components/client-modal";
 
 export interface ProjectFormValues {
   id?: string;
@@ -50,7 +52,12 @@ export function ProjectForm({
     action,
     null as Result | null,
   );
+  const router = useRouter();
   const [addingClient, setAddingClient] = useState(false);
+  // a client created from the modal is selected straight away, so the new
+  // project does not have to be saved and reopened to attach it
+  const [justAdded, setJustAdded] = useState<{ id: string; name: string } | null>(null);
+  const [clientId, setClientId] = useState(values.client_id ?? "");
 
   // live end-date preview so the duration is not an abstract number
   const [start, setStart] = useState(values.start_date ?? "");
@@ -68,6 +75,16 @@ export function ProjectForm({
   })();
 
   return (
+    <>
+    <ClientModal
+      open={addingClient}
+      onClose={() => setAddingClient(false)}
+      onSaved={(c) => {
+        setJustAdded(c);
+        setClientId(c.id);
+        router.refresh();
+      }}
+    />
     <form action={formAction} className="space-y-5">
       {values.id && <input type="hidden" name="id" value={values.id} />}
 
@@ -88,21 +105,19 @@ export function ProjectForm({
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <label htmlFor="client_id" className="text-sm font-medium">Client</label>
-            <button type="button" onClick={() => setAddingClient((v) => !v)}
+            <button type="button" onClick={() => setAddingClient(true)}
               className="text-xs font-medium text-[var(--brand)] hover:underline">
-              {addingClient ? "Pick existing" : "+ New client"}
+              + Add new client
             </button>
           </div>
-          {addingClient ? (
-            <input name="new_client_name" placeholder="New client name" className={input} autoFocus />
-          ) : (
-            <select id="client_id" name="client_id" defaultValue={values.client_id ?? ""} className={input}>
-              <option value="">No client</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          )}
+          <select id="client_id" name="client_id" value={clientId}
+            onChange={(e) => setClientId(e.target.value)} className={input}>
+            <option value="">No client</option>
+            {justAdded && <option value={justAdded.id}>{justAdded.name}</option>}
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
         </div>
         <div>
           <label htmlFor="status" className={label}>Status</label>
@@ -180,5 +195,6 @@ export function ProjectForm({
         </Link>
       </div>
     </form>
+    </>
   );
 }
