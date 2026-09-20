@@ -169,7 +169,9 @@ async function withGemini(
   // and costs the person nothing but a few seconds they were already waiting.
   const models = [
     process.env.GEMINI_MODEL ?? "gemini-3.6-flash",
-    process.env.GEMINI_FALLBACK_MODEL ?? "gemini-3.6-flash-lite",
+    // an alias rather than a pinned version, so it stays valid as Google
+    // retires model names underneath us
+    process.env.GEMINI_FALLBACK_MODEL ?? "gemini-flash-lite-latest",
   ];
 
   let res: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
@@ -209,6 +211,10 @@ async function withGemini(
         });
         break outer;
       } catch (e) {
+        // a model name Google does not know is not this bill's problem: drop
+        // to the next one rather than reporting it, and keep the first real
+        // error so the person is told what actually went wrong
+        if (isUnknownModel(e)) break;
         lastError = googleMessage(e);
         // only congestion is worth waiting out; a bad key or a bad image
         // will fail the same way however many times it is asked
@@ -255,4 +261,12 @@ function googleMessage(e: unknown): string {
 function isBusy(e: unknown): boolean {
   const raw = e instanceof Error ? e.message : String(e);
   return /503|UNAVAILABLE|overloaded|high demand|try again later/i.test(raw);
+}
+
+/** True when Google does not recognise the model name we asked for. */
+function isUnknownModel(e: unknown): boolean {
+  const raw = e instanceof Error ? e.message : String(e);
+  return /is not found for API version|NOT_FOUND|no longer available|not supported for generateContent/i.test(
+    raw,
+  );
 }
