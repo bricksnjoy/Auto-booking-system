@@ -16,6 +16,10 @@ export interface BillRow {
   subtotal: number;
   tax_amount: number;
   total: number;
+  gst_rate: number;
+  supplier_tin: string | null;
+  taxable_activity_no: string | null;
+  expense_class: string;
   /** signed URL for the stored photo, if there is one */
   photo_url: string | null;
 }
@@ -28,10 +32,13 @@ export function BillsPanel({
   projectId,
   rows,
   categories,
+  defaultActivityNo,
 }: {
   projectId: string;
   rows: BillRow[];
   categories: { id: string; name: string }[];
+  /** carried over from the last bill entered, since it rarely changes */
+  defaultActivityNo?: string | null;
 }) {
   const [state, action, pending] = useActionState(addBill, null as Result | null);
   const [open, setOpen] = useState(false);
@@ -103,10 +110,14 @@ export function BillsPanel({
                 onChange={onPhoto} className="sr-only" />
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-3">
               <div>
                 <label className={tiny}>Shop / supplier</label>
                 <input name="shop" required className={input} placeholder="Sonee Hardware" />
+              </div>
+              <div>
+                <label className={tiny}>Supplier TIN</label>
+                <input name="supplier_tin" className={input} placeholder="1000000GST501" />
               </div>
               <div>
                 <label className={tiny}>What was bought</label>
@@ -114,13 +125,22 @@ export function BillsPanel({
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-5">
               <div>
-                <label className={tiny}>Net</label>
+                <label className={tiny}>Net (excl GST)</label>
                 <input name="subtotal" type="number" step="0.01" className={input} />
               </div>
               <div>
-                <label className={tiny}>GST</label>
+                <label className={tiny}>GST rate</label>
+                <select name="gst_rate" defaultValue="6" className={input}>
+                  <option value="0">No GST</option>
+                  <option value="6">6%</option>
+                  <option value="8">8%</option>
+                  <option value="12">12%</option>
+                </select>
+              </div>
+              <div>
+                <label className={tiny}>GST charged</label>
                 <input name="tax_amount" type="number" step="0.01" className={input} />
               </div>
               <div>
@@ -134,9 +154,9 @@ export function BillsPanel({
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-4">
               <div>
-                <label className={tiny}>Bill number</label>
+                <label className={tiny}>Invoice number</label>
                 <input name="bill_no" className={input} placeholder="Auto" />
               </div>
               <div>
@@ -146,6 +166,18 @@ export function BillsPanel({
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
+                </select>
+              </div>
+              <div>
+                <label className={tiny}>Taxable activity no.</label>
+                <input name="taxable_activity_no" defaultValue={defaultActivityNo ?? ""}
+                  className={input} placeholder="Yours" />
+              </div>
+              <div>
+                <label className={tiny}>Revenue / capital</label>
+                <select name="expense_class" defaultValue="revenue" className={input}>
+                  <option value="revenue">Revenue</option>
+                  <option value="capital">Capital</option>
                 </select>
               </div>
             </div>
@@ -191,6 +223,26 @@ export function BillsPanel({
                           <label className={tiny}>GST</label>
                           <input name="tax_amount" type="number" step="0.01" defaultValue={b.tax_amount} className={input} />
                         </div>
+                        <div className="w-24">
+                          <label className={tiny}>Rate</label>
+                          <select name="gst_rate" defaultValue={String(b.gst_rate)} className={input}>
+                            <option value="0">None</option>
+                            <option value="6">6%</option>
+                            <option value="8">8%</option>
+                            <option value="12">12%</option>
+                          </select>
+                        </div>
+                        <div className="w-36">
+                          <label className={tiny}>Activity no.</label>
+                          <input name="taxable_activity_no" defaultValue={b.taxable_activity_no ?? ""} className={input} />
+                        </div>
+                        <div className="w-28">
+                          <label className={tiny}>Class</label>
+                          <select name="expense_class" defaultValue={b.expense_class} className={input}>
+                            <option value="revenue">Revenue</option>
+                            <option value="capital">Capital</option>
+                          </select>
+                        </div>
                         <div className="w-28">
                           <label className={tiny}>Total</label>
                           <input name="total" type="number" step="0.01" defaultValue={b.total} className={input} />
@@ -218,6 +270,11 @@ export function BillsPanel({
                     </Td>
                     <Td>
                       {b.shop ?? "—"}
+                      {b.supplier_tin && (
+                        <span className="block font-mono text-[10px] text-[var(--muted)]">
+                          TIN {b.supplier_tin}
+                        </span>
+                      )}
                       {b.description && b.description !== b.shop && (
                         <span className="block max-w-xs truncate text-xs text-[var(--muted)]">
                           {b.description}

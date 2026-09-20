@@ -138,19 +138,25 @@ export async function addBill(_prev: unknown, fd: FormData): Promise<Result> {
     attachmentPath = path;
   }
 
-  // match the shop to a vendor, creating one the first time it appears
+  // Match the shop to a vendor, creating one the first time it appears.
+  // The TIN lives on the shop, so entering it once fills it in for every
+  // later invoice from the same supplier.
+  const tin = text(fd, "supplier_tin");
   let vendorId: string | null = null;
   const { data: vendor } = await supabase
     .from("vendors")
-    .select("id")
+    .select("id, tin")
     .ilike("name", shop)
     .maybeSingle();
   if (vendor) {
     vendorId = vendor.id;
+    if (tin && tin !== vendor.tin) {
+      await supabase.from("vendors").update({ tin }).eq("id", vendor.id);
+    }
   } else {
     const { data: created } = await supabase
       .from("vendors")
-      .insert({ name: shop, kind: "supplier", is_approved: true })
+      .insert({ name: shop, kind: "supplier", is_approved: true, tin })
       .select("id")
       .single();
     vendorId = created?.id ?? null;
@@ -172,6 +178,9 @@ export async function addBill(_prev: unknown, fd: FormData): Promise<Result> {
     tax_amount: gst,
     total,
     description: text(fd, "description") ?? shop,
+    gst_rate: number(fd, "gst_rate"),
+    taxable_activity_no: text(fd, "taxable_activity_no"),
+    expense_class: text(fd, "expense_class") ?? "revenue",
     attachment_path: attachmentPath,
     created_by: user.id,
   });
@@ -203,6 +212,9 @@ export async function updateBill(fd: FormData): Promise<void> {
       subtotal: number(fd, "subtotal") || total - gst,
       tax_amount: gst,
       total,
+      gst_rate: number(fd, "gst_rate"),
+      taxable_activity_no: text(fd, "taxable_activity_no"),
+      expense_class: text(fd, "expense_class") ?? "revenue",
     })
     .eq("id", id);
 

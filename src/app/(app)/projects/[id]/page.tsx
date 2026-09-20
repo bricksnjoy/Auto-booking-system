@@ -47,7 +47,7 @@ export default async function ProjectDetailPage({
       .order("due_date", { nullsFirst: false }),
     supabase.from("budget_lines").select("*, cost_categories(name)").eq("project_id", id),
     supabase.from("bills")
-      .select("*, vendors(name), cost_categories(name)")
+      .select("*, vendors(name, tin), cost_categories(name)")
       .eq("project_id", id)
       .order("issue_date", { ascending: false }),
     supabase.from("project_investor_splits").select("*").eq("project_id", id),
@@ -69,11 +69,15 @@ export default async function ProjectDetailPage({
     id: b.id,
     bill_no: b.bill_no,
     shop: (b.vendors as unknown as { name: string } | null)?.name ?? b.description ?? null,
+    supplier_tin: (b.vendors as unknown as { tin: string | null } | null)?.tin ?? null,
     description: b.description,
     issue_date: b.issue_date,
     subtotal: num(b.subtotal),
     tax_amount: num(b.tax_amount),
     total: num(b.total),
+    gst_rate: num(b.gst_rate),
+    taxable_activity_no: b.taxable_activity_no,
+    expense_class: b.expense_class ?? "revenue",
     photo_url: b.attachment_path ? urlByPath.get(b.attachment_path) ?? null : null,
   }));
 
@@ -256,7 +260,14 @@ export default async function ProjectDetailPage({
         </div>
 
         <div className="xl:col-span-2">
-          <BillsPanel projectId={id} rows={billRows} categories={categories ?? []} />
+          <BillsPanel
+            projectId={id}
+            rows={billRows}
+            categories={categories ?? []}
+            defaultActivityNo={
+              billRows.find((b) => b.taxable_activity_no)?.taxable_activity_no ?? null
+            }
+          />
         </div>
 
         <Card className="xl:col-span-2">
