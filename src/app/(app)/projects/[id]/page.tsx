@@ -76,6 +76,8 @@ export default async function ProjectDetailPage({
     shop: (b.vendors as unknown as { name: string } | null)?.name ?? b.description ?? null,
     supplier_tin: (b.vendors as unknown as { tin: string | null } | null)?.tin ?? null,
     description: b.description,
+    category_id: b.category_id ?? "",
+    category: (b.cost_categories as unknown as { name: string } | null)?.name ?? null,
     issue_date: b.issue_date,
     subtotal: num(b.subtotal),
     tax_amount: num(b.tax_amount),

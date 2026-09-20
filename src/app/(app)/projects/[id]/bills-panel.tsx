@@ -12,6 +12,8 @@ export interface BillRow {
   bill_no: string;
   shop: string | null;
   description: string | null;
+  category_id: string;
+  category: string | null;
   issue_date: string | null;
   subtotal: number;
   tax_amount: number;
@@ -72,7 +74,7 @@ export function BillsPanel({
           <Table>
             <thead>
               <tr>
-                <Th>Bill</Th><Th>Shop</Th><Th>Item</Th>
+                <Th>Bill</Th><Th>Shop</Th><Th>Category</Th>
                 <Th right>Net</Th><Th right>GST</Th><Th right>Total</Th>
                 <Th className="w-20 pl-10">Photo</Th><Th right>{""}</Th>
               </tr>
@@ -86,8 +88,13 @@ export function BillsPanel({
                         <input type="hidden" name="id" value={b.id} />
                         <input type="hidden" name="project_id" value={projectId} />
                         <div className="min-w-[180px] flex-1">
-                          <label className={tiny}>Description</label>
-                          <input name="description" defaultValue={b.description ?? ""} className={input} />
+                          <label className={tiny}>Category</label>
+                          <select name="category_id" defaultValue={b.category_id} className={input}>
+                            <option value="">Uncategorised</option>
+                            {categories.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
                         </div>
                         <div className="w-28">
                           <label className={tiny}>Net</label>
@@ -151,7 +158,7 @@ export function BillsPanel({
                       )}
                     </Td>
                     <Td className="max-w-xs truncate text-[var(--muted)]">
-                      {b.description && b.description !== b.shop ? b.description : "—"}
+                      {b.category ?? "—"}
                     </Td>
                     <Td right>{money(b.subtotal)}</Td>
                     <Td right className="text-[var(--muted)]">{money(b.tax_amount)}</Td>

@@ -384,7 +384,7 @@ export function BillsModal({
           )}
 
           {/* fields */}
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className={tiny}>Shop / supplier</label>
               <input value={draft.shop} onChange={(e) => set("shop", e.target.value)}
@@ -394,11 +394,6 @@ export function BillsModal({
               <label className={tiny}>Supplier TIN</label>
               <input value={draft.supplier_tin} onChange={(e) => set("supplier_tin", e.target.value)}
                 className={input} placeholder="1000000GST501" />
-            </div>
-            <div>
-              <label className={tiny}>What was bought</label>
-              <input value={draft.description} onChange={(e) => set("description", e.target.value)}
-                className={input} placeholder="Cement and fixings" />
             </div>
           </div>
 
@@ -514,7 +509,9 @@ export function BillsModal({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{b.shop}</span>
                       <span className="block truncate text-xs text-[var(--muted)]">
-                        {b.description || "—"} · {b.issue_date}
+                        {categories.find((c) => c.id === b.category_id)?.name ?? "Uncategorised"}
+                        {" · "}
+                        {b.issue_date}
                       </span>
                     </span>
                     <span className="shrink-0 text-sm tabular-nums">{money(num(b.total))}</span>
