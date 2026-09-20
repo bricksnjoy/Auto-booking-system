@@ -1,12 +1,28 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { NavGroup, NavItem } from "@/lib/nav";
 
 function isActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
+
+/**
+ * A tick of feedback on the item just clicked. These pages are rendered on
+ * demand, so there is a real wait before the next screen paints, and without
+ * this the sidebar looks unresponsive for the whole of it.
+ */
+function Pending() {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return (
+    <span
+      aria-label="Loading"
+      className="h-3 w-3 shrink-0 animate-spin rounded-full border border-current border-t-transparent opacity-60"
+    />
+  );
 }
 
 export function Sidebar({
@@ -94,13 +110,15 @@ export function Sidebar({
                       <li key={item.href}>
                         <Link
                           href={item.href}
-                          className={`block rounded-lg px-3 py-1.5 text-[13px] transition-colors ${
+                          prefetch
+                          className={`flex items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-[13px] transition-colors ${
                             active
                               ? "bg-[var(--brand-soft)] font-medium text-[var(--brand)]"
                               : "text-[var(--muted)] hover:bg-[var(--brand-soft)] hover:text-[var(--text)]"
                           }`}
                         >
                           {item.label}
+                          <Pending />
                         </Link>
                       </li>
                     );
