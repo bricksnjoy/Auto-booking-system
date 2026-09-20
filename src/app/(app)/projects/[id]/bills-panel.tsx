@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Card, CardHeader, Table, Th, Td, Empty } from "@/components/ui";
 import { money, date, num } from "@/lib/format";
 import { updateBill, deleteBill } from "@/app/actions/project-items";
@@ -11,6 +12,7 @@ export interface BillRow {
   id: string;
   bill_no: string;
   shop: string | null;
+  vendor_id: string | null;
   description: string | null;
   category_id: string;
   category: string | null;
@@ -150,7 +152,14 @@ export function BillsPanel({
                       <span className="block text-xs text-[var(--muted)]">{date(b.issue_date)}</span>
                     </Td>
                     <Td>
-                      {b.shop ?? "—"}
+                      {b.vendor_id && b.shop ? (
+                        <Link href={`/shops/${b.vendor_id}`}
+                          className="hover:text-[var(--brand)] hover:underline">
+                          {b.shop}
+                        </Link>
+                      ) : (
+                        (b.shop ?? "—")
+                      )}
                       {b.supplier_tin && (
                         <span className="block font-mono text-[10px] text-[var(--muted)]">
                           TIN {b.supplier_tin}

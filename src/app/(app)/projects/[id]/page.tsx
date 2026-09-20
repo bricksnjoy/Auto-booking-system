@@ -74,6 +74,7 @@ export default async function ProjectDetailPage({
     id: b.id,
     bill_no: b.bill_no,
     shop: (b.vendors as unknown as { name: string } | null)?.name ?? b.description ?? null,
+    vendor_id: b.vendor_id ?? null,
     supplier_tin: (b.vendors as unknown as { tin: string | null } | null)?.tin ?? null,
     description: b.description,
     category_id: b.category_id ?? "",

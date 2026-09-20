@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Card, Table, Th, Td } from "@/components/ui";
 import { money, date } from "@/lib/format";
 import { ShopModal, type ShopValues } from "@/components/shop-modal";
@@ -59,7 +60,9 @@ export function ShopsTable({ rows }: { rows: ShopRow[] }) {
               {rows.map((s) => (
                 <tr key={s.id} className="hover:bg-[var(--hover)]">
                   <Td className="font-medium">
-                    {s.name}
+                    <Link href={`/shops/${s.id}`} className="hover:text-[var(--brand)] hover:underline">
+                      {s.name}
+                    </Link>
                     {s.trade && (
                       <span className="block text-xs font-normal text-[var(--muted)]">
                         {s.trade}
