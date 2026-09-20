@@ -140,37 +140,60 @@ async function withGemini(fileBytes: Buffer, mimeType: string): Promise<Extracte
     apiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
   });
 
-  const res = await ai.models
-    .generateContent({
-        model: process.env.GEMINI_MODEL ?? "gemini-3.6-flash",
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                inlineData: {
-                  mimeType:
-                    mimeType === "application/pdf" || IMAGE_TYPES.includes(mimeType)
-                      ? mimeType
-                      : "image/jpeg",
-                  data: fileBytes.toString("base64"),
+  // Free-tier traffic is served last, so an overloaded model is routine rather
+  // than exceptional. Backing off and trying again clears almost all of it,
+  // and costs the person nothing but a few seconds they were already waiting.
+  const models = [
+    process.env.GEMINI_MODEL ?? "gemini-3.6-flash",
+    process.env.GEMINI_FALLBACK_MODEL ?? "gemini-3.6-flash-lite",
+  ];
+
+  let res: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
+  let lastError = "Could not read a bill out of this image.";
+
+  outer: for (const model of models) {
+    // the fallback gets one go: by then the delay matters more than the model
+    const waits = model === models[0] ? [0, 1500, 4000] : [0];
+    for (const wait of waits) {
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      try {
+        res = await ai.models.generateContent({
+          model,
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  inlineData: {
+                    mimeType:
+                      mimeType === "application/pdf" || IMAGE_TYPES.includes(mimeType)
+                        ? mimeType
+                        : "image/jpeg",
+                    data: fileBytes.toString("base64"),
+                  },
                 },
-              },
-              { text: READ_PROMPT },
-            ],
+                { text: READ_PROMPT },
+              ],
+            },
+          ],
+          config: {
+            systemInstruction: SYSTEM,
+            responseMimeType: "application/json",
+            responseJsonSchema: z.toJSONSchema(BillSchema),
+            temperature: 0,
           },
-        ],
-        config: {
-          systemInstruction: SYSTEM,
-          responseMimeType: "application/json",
-          responseJsonSchema: z.toJSONSchema(BillSchema),
-          temperature: 0,
-        },
-      })
-    // Google's errors arrive as a JSON blob, which is no use on screen
-    .catch((e: unknown) => {
-      throw new Error(googleMessage(e));
-    });
+        });
+        break outer;
+      } catch (e) {
+        lastError = googleMessage(e);
+        // only congestion is worth waiting out; a bad key or a bad image
+        // will fail the same way however many times it is asked
+        if (!isBusy(e)) break outer;
+      }
+    }
+  }
+
+  if (!res) throw new Error(lastError);
 
   const text = res.text;
   if (!text) throw new Error("Could not read a bill out of this image.");
@@ -195,8 +218,17 @@ function googleMessage(e: unknown): string {
   if (/quota|rate limit|RESOURCE_EXHAUSTED/i.test(msg)) {
     return "Google's free tier is rate limited — wait a moment and read this bill again.";
   }
+  if (/503|UNAVAILABLE|overloaded|high demand/i.test(msg)) {
+    return "Google's free reader is busy and did not answer after three tries. Wait a moment and read this bill again, or fill it in by hand.";
+  }
   if (/API key|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)) {
     return "The Gemini key was rejected. Check GEMINI_API_KEY in Vercel.";
   }
   return msg.slice(0, 300);
+}
+
+/** True when Google is merely busy, so the same request is worth repeating. */
+function isBusy(e: unknown): boolean {
+  const raw = e instanceof Error ? e.message : String(e);
+  return /503|UNAVAILABLE|overloaded|high demand|try again later/i.test(raw);
 }

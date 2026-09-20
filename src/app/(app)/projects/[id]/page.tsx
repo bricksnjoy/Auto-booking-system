@@ -11,6 +11,8 @@ import { VariationsPanel } from "./variations-panel";
 import { BillsPanel } from "./bills-panel";
 
 export const dynamic = "force-dynamic";
+// bill reading waits on Google, and retries when it is busy
+export const maxDuration = 60;
 
 export default async function ProjectDetailPage({
   params,
