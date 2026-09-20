@@ -1,0 +1,184 @@
+"use client";
+
+import { useActionState, useState } from "react";
+import Link from "next/link";
+import { createProject, updateProject } from "@/app/actions/projects";
+import type { Result } from "@/app/actions/projects";
+
+export interface ProjectFormValues {
+  id?: string;
+  code?: string;
+  name?: string;
+  client_id?: string | null;
+  status?: string;
+  description?: string | null;
+  site_address?: string | null;
+  contract_value?: number;
+  gst_amount?: number;
+  start_date?: string | null;
+  duration_days?: number | null;
+  progress_pct?: number;
+}
+
+const input =
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)]";
+const label = "mb-1.5 block text-sm font-medium";
+
+const STATUSES = [
+  ["lead", "Lead"],
+  ["tendering", "Tendering"],
+  ["won", "Won"],
+  ["in_progress", "In progress"],
+  ["on_hold", "On hold"],
+  ["completed", "Completed"],
+  ["cancelled", "Cancelled"],
+];
+
+export function ProjectForm({
+  mode,
+  clients,
+  values = {},
+  nextCode,
+}: {
+  mode: "create" | "edit";
+  clients: { id: string; name: string }[];
+  values?: ProjectFormValues;
+  nextCode?: string;
+}) {
+  const action = mode === "create" ? createProject : updateProject;
+  const [state, formAction, pending] = useActionState(
+    action,
+    null as Result | null,
+  );
+  const [addingClient, setAddingClient] = useState(false);
+
+  // live end-date preview so the duration is not an abstract number
+  const [start, setStart] = useState(values.start_date ?? "");
+  const [days, setDays] = useState(
+    values.duration_days === null || values.duration_days === undefined
+      ? ""
+      : String(values.duration_days),
+  );
+  const end = (() => {
+    const n = parseInt(days, 10);
+    if (!start || !Number.isFinite(n)) return null;
+    const d = new Date(start);
+    d.setDate(d.getDate() + n);
+    return d.toLocaleDateString("en-GB", { dateStyle: "medium" });
+  })();
+
+  return (
+    <form action={formAction} className="space-y-5">
+      {values.id && <input type="hidden" name="id" value={values.id} />}
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="sm:col-span-2">
+          <label htmlFor="name" className={label}>Project name</label>
+          <input id="name" name="name" required defaultValue={values.name ?? ""}
+            placeholder="Ministry Of Youth — Office Renovation" className={input} />
+        </div>
+        <div>
+          <label htmlFor="code" className={label}>Code</label>
+          <input id="code" name="code" defaultValue={values.code ?? nextCode ?? ""}
+            className={`${input} font-mono`} />
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label htmlFor="client_id" className="text-sm font-medium">Client</label>
+            <button type="button" onClick={() => setAddingClient((v) => !v)}
+              className="text-xs font-medium text-[var(--brand)] hover:underline">
+              {addingClient ? "Pick existing" : "+ New client"}
+            </button>
+          </div>
+          {addingClient ? (
+            <input name="new_client_name" placeholder="New client name" className={input} autoFocus />
+          ) : (
+            <select id="client_id" name="client_id" defaultValue={values.client_id ?? ""} className={input}>
+              <option value="">No client</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div>
+          <label htmlFor="status" className={label}>Status</label>
+          <select id="status" name="status" defaultValue={values.status ?? "in_progress"} className={input}>
+            {STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div>
+          <label htmlFor="start_date" className={label}>Start date</label>
+          <input id="start_date" name="start_date" type="date" value={start}
+            onChange={(e) => setStart(e.target.value)} className={input} />
+        </div>
+        <div>
+          <label htmlFor="duration_days" className={label}>Duration (days)</label>
+          <input id="duration_days" name="duration_days" type="number" min="0" value={days}
+            onChange={(e) => setDays(e.target.value)} className={input} />
+        </div>
+        <div>
+          <span className={label}>Finishes</span>
+          <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)]">
+            {end ?? "—"}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div>
+          <label htmlFor="contract_value" className={label}>Project value (MVR)</label>
+          <input id="contract_value" name="contract_value" type="number" step="0.01"
+            defaultValue={values.contract_value ?? ""} className={input} />
+        </div>
+        <div>
+          <label htmlFor="gst_amount" className={label}>GST</label>
+          <input id="gst_amount" name="gst_amount" type="number" step="0.01"
+            defaultValue={values.gst_amount ?? ""} placeholder="Leave blank for 6%" className={input} />
+          <p className="mt-1 text-xs text-[var(--muted)]">Blank calculates 6% of value + variations.</p>
+        </div>
+        <div>
+          <label htmlFor="progress_pct" className={label}>Progress (%)</label>
+          <input id="progress_pct" name="progress_pct" type="number" min="0" max="100"
+            defaultValue={values.progress_pct ?? 0} className={input} />
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="site_address" className={label}>
+          Site address <span className="font-normal text-[var(--muted)]">(optional)</span>
+        </label>
+        <input id="site_address" name="site_address" defaultValue={values.site_address ?? ""} className={input} />
+      </div>
+
+      <div>
+        <label htmlFor="description" className={label}>
+          Description <span className="font-normal text-[var(--muted)]">(optional)</span>
+        </label>
+        <textarea id="description" name="description" rows={2}
+          defaultValue={values.description ?? ""} className={input} />
+      </div>
+
+      {state?.error && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>
+      )}
+
+      <div className="flex items-center gap-3">
+        <button type="submit" disabled={pending}
+          className="rounded-lg bg-[var(--brand)] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-60">
+          {pending ? "Saving…" : mode === "create" ? "Create project" : "Save changes"}
+        </button>
+        <Link href={values.id ? `/projects/${values.id}` : "/projects"}
+          className="text-sm text-[var(--muted)] hover:underline">
+          Cancel
+        </Link>
+      </div>
+    </form>
+  );
+}

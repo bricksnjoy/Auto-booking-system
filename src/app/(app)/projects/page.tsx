@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { Card, PageHeader, Stat, Badge, Progress, Table, Th, Td, Empty } from "@/components/ui";
+import { Card, PageHeader, Stat, Badge, Progress, Table, Th, Td, Empty, Button } from "@/components/ui";
 import { money, num } from "@/lib/format";
 import type { ProjectPnl } from "@/lib/types";
 
@@ -17,7 +17,11 @@ export default async function ProjectsPage() {
 
   return (
     <div>
-      <PageHeader title="Projects" subtitle="Every job, with its live cost position" />
+      <PageHeader
+        title="Projects"
+        subtitle="Every job, with its live cost position"
+        action={<Button href="/projects/new">+ New project</Button>}
+      />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Total projects" value={String(projects.length)} hint={`${live.length} in progress`} />
@@ -32,7 +36,10 @@ export default async function ProjectsPage() {
 
       <Card>
         {projects.length === 0 ? (
-          <Empty message="No projects yet." />
+          <div className="px-5 py-12 text-center">
+            <p className="text-sm text-[var(--muted)]">No projects yet.</p>
+            <div className="mt-4"><Button href="/projects/new">+ New project</Button></div>
+          </div>
         ) : (
           <Table>
             <thead>

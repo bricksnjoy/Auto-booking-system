@@ -6,6 +6,8 @@ import {
 } from "@/components/ui";
 import { money, date, num, pct } from "@/lib/format";
 import type { ProjectPnl, InvestorSplit } from "@/lib/types";
+import { VariationsPanel } from "./variations-panel";
+import { BillsPanel } from "./bills-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,8 @@ export default async function ProjectDetailPage({
     { data: budget },
     { data: bills },
     { data: splits },
+    { data: variations },
+    { data: categories },
   ] = await Promise.all([
     supabase.from("projects").select("*, clients(name)").eq("id", id).single(),
     supabase.from("project_phases").select("*").eq("project_id", id).order("sort_order"),
@@ -47,7 +51,40 @@ export default async function ProjectDetailPage({
       .eq("project_id", id)
       .order("issue_date", { ascending: false }),
     supabase.from("project_investor_splits").select("*").eq("project_id", id),
+    supabase.from("variations").select("*").eq("project_id", id).order("raised_date"),
+    supabase.from("cost_categories").select("id, name").order("sort_order"),
   ]);
+
+  // sign the stored bill photos so they can be shown without making the
+  // bucket public
+  const paths = (bills ?? []).map((b) => b.attachment_path).filter(Boolean) as string[];
+  const signed = paths.length
+    ? (await supabase.storage.from("bills").createSignedUrls(paths, 60 * 60)).data ?? []
+    : [];
+  const urlByPath = new Map(
+    signed.filter((s) => s.signedUrl).map((s) => [s.path as string, s.signedUrl]),
+  );
+
+  const billRows = (bills ?? []).map((b) => ({
+    id: b.id,
+    bill_no: b.bill_no,
+    shop: (b.vendors as unknown as { name: string } | null)?.name ?? b.description ?? null,
+    description: b.description,
+    issue_date: b.issue_date,
+    subtotal: num(b.subtotal),
+    tax_amount: num(b.tax_amount),
+    total: num(b.total),
+    photo_url: b.attachment_path ? urlByPath.get(b.attachment_path) ?? null : null,
+  }));
+
+  const variationRows = (variations ?? []).map((v) => ({
+    id: v.id,
+    ref: v.ref,
+    description: v.description,
+    cost_impact: num(v.cost_impact),
+    time_impact_days: num(v.time_impact_days),
+    raised_date: v.raised_date,
+  }));
 
   const investors = (splits ?? []) as InvestorSplit[];
 
@@ -81,7 +118,17 @@ export default async function ProjectDetailPage({
       <PageHeader
         title={p.project_name}
         subtitle={`${p.code}${client?.name ? ` · ${client.name}` : ""}`}
-        action={<Badge value={p.status} />}
+        action={
+          <div className="flex items-center gap-3">
+            <Badge value={p.status} />
+            <Link
+              href={`/projects/${id}/edit`}
+              className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)]"
+            >
+              Edit project
+            </Link>
+          </div>
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -204,44 +251,13 @@ export default async function ProjectDetailPage({
           )}
         </Card>
 
-        <Card className="xl:col-span-2">
-          <CardHeader
-            title="Bills"
-            subtitle={`${bills?.length ?? 0} bills making up EXP of ${money(p.exp)}`}
-          />
-          {!bills?.length ? (
-            <Empty message="No bills recorded." />
-          ) : (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Bill</Th><Th>Shop</Th><Th>Category</Th><Th>Status</Th>
-                  <Th right>Net</Th><Th right>GST</Th><Th right>Total</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {bills.map((b) => {
-                  const v = b.vendors as unknown as { name: string } | null;
-                  const cat = b.cost_categories as unknown as { name: string } | null;
-                  return (
-                    <tr key={b.id} className="hover:bg-[var(--hover)]">
-                      <Td>
-                        <span className="font-mono text-xs">{b.bill_no}</span>
-                        <span className="block text-xs text-[var(--muted)]">{date(b.issue_date)}</span>
-                      </Td>
-                      <Td>{v?.name ?? "—"}</Td>
-                      <Td className="text-xs text-[var(--muted)]">{cat?.name ?? "—"}</Td>
-                      <Td><Badge value={b.status} /></Td>
-                      <Td right>{money(b.subtotal)}</Td>
-                      <Td right className="text-[var(--muted)]">{money(b.tax_amount)}</Td>
-                      <Td right className="font-medium">{money(b.total)}</Td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          )}
-        </Card>
+        <div className="xl:col-span-2">
+          <VariationsPanel projectId={id} rows={variationRows} />
+        </div>
+
+        <div className="xl:col-span-2">
+          <BillsPanel projectId={id} rows={billRows} categories={categories ?? []} />
+        </div>
 
         <Card className="xl:col-span-2">
           <CardHeader title="Tasks" />

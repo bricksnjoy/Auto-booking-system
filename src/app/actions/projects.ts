@@ -1,0 +1,157 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+
+export type Result = { error?: string; ok?: boolean };
+
+const text = (fd: FormData, k: string) => {
+  const v = String(fd.get(k) ?? "").trim();
+  return v === "" ? null : v;
+};
+
+const number = (fd: FormData, k: string) => {
+  const raw = String(fd.get(k) ?? "").replace(/[^0-9.-]/g, "");
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const int = (fd: FormData, k: string) => {
+  const raw = String(fd.get(k) ?? "").replace(/[^0-9-]/g, "");
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** end date = start + duration, so the two never drift apart */
+function endDate(start: string | null, days: number | null) {
+  if (!start || days === null) return null;
+  const d = new Date(start);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Resolve the client for a project: either an existing id, or a name typed
+ * into the "new client" box, which is created on the fly.
+ */
+async function resolveClient(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fd: FormData,
+): Promise<{ id: string | null; error?: string }> {
+  const newName = text(fd, "new_client_name");
+  if (newName) {
+    const { data: existing } = await supabase
+      .from("clients")
+      .select("id")
+      .ilike("name", newName)
+      .maybeSingle();
+    if (existing) return { id: existing.id };
+
+    const { data, error } = await supabase
+      .from("clients")
+      .insert({ name: newName, type: "company", is_active: true })
+      .select("id")
+      .single();
+    if (error) return { id: null, error: `Could not add the client: ${error.message}` };
+    return { id: data.id };
+  }
+  return { id: text(fd, "client_id") };
+}
+
+export async function createProject(_prev: unknown, fd: FormData): Promise<Result> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const name = text(fd, "name");
+  if (!name) return { error: "Give the project a name." };
+
+  const client = await resolveClient(supabase, fd);
+  if (client.error) return { error: client.error };
+
+  const start = text(fd, "start_date");
+  const days = int(fd, "duration_days");
+
+  // let the database pick the next code unless one was typed in
+  let code = text(fd, "code");
+  if (!code) {
+    const { data } = await supabase.rpc("next_project_code");
+    code = (data as string | null) ?? "SC-001";
+  }
+
+  const { data: project, error } = await supabase
+    .from("projects")
+    .insert({
+      code,
+      name,
+      client_id: client.id,
+      status: text(fd, "status") ?? "in_progress",
+      description: text(fd, "description"),
+      site_address: text(fd, "site_address"),
+      contract_value: number(fd, "contract_value"),
+      gst_amount: number(fd, "gst_amount"),
+      start_date: start,
+      duration_days: days,
+      end_date: endDate(start, days),
+      progress_pct: number(fd, "progress_pct"),
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") return { error: `Project code ${code} is already in use.` };
+    return { error: error.message };
+  }
+
+  revalidatePath("/projects");
+  revalidatePath("/pnl");
+  revalidatePath("/");
+  redirect(`/projects/${project.id}`);
+}
+
+export async function updateProject(_prev: unknown, fd: FormData): Promise<Result> {
+  const supabase = await createClient();
+  const id = String(fd.get("id") ?? "");
+  if (!id) return { error: "Missing project id." };
+
+  const name = text(fd, "name");
+  if (!name) return { error: "Give the project a name." };
+
+  const client = await resolveClient(supabase, fd);
+  if (client.error) return { error: client.error };
+
+  const start = text(fd, "start_date");
+  const days = int(fd, "duration_days");
+
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      code: text(fd, "code") ?? undefined,
+      name,
+      client_id: client.id,
+      status: text(fd, "status") ?? "in_progress",
+      description: text(fd, "description"),
+      site_address: text(fd, "site_address"),
+      contract_value: number(fd, "contract_value"),
+      gst_amount: number(fd, "gst_amount"),
+      start_date: start,
+      duration_days: days,
+      end_date: endDate(start, days),
+      progress_pct: number(fd, "progress_pct"),
+    })
+    .eq("id", id);
+
+  if (error) {
+    if (error.code === "23505") return { error: "That project code is already in use." };
+    return { error: error.message };
+  }
+
+  revalidatePath(`/projects/${id}`);
+  revalidatePath("/projects");
+  revalidatePath("/pnl");
+  revalidatePath("/");
+  redirect(`/projects/${id}`);
+}
