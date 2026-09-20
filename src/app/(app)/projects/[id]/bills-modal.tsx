@@ -76,6 +76,9 @@ export function BillsModal({
   const [checking, startCheck] = useTransition();
   const [notice, setNotice] = useState<string | null>(null);
   const [zoom, setZoom] = useState(false);
+  /** photos still to be worked through, in the order they were chosen */
+  const [queue, setQueue] = useState<File[]>([]);
+  const [index, setIndex] = useState(0);
   /** progress of the on-device read, when there is no server-side reader */
   const [ocrPct, setOcrPct] = useState<number | null>(null);
 
@@ -155,14 +158,14 @@ export function BillsModal({
 
   if (!open) return null;
 
-  function onPhoto(file: File | null) {
-    setDraft((d) => ({
-      ...d,
+  /** Put one photo in front of the person and start reading it. */
+  function loadFile(file: File | null) {
+    setDraft({
+      ...blank(defaultActivityNo),
       file,
       previewUrl: file ? URL.createObjectURL(file) : null,
-      confidence: null,
-      notes: "",
-    }));
+    });
+    setConfirm(null);
     setNotice(null);
     setZoom(false);
     setOcrPct(null);
@@ -191,11 +194,53 @@ export function BillsModal({
     })();
   }
 
+  /** A whole batch can be chosen at once; they are queued, not merged. */
+  function onPhotos(files: FileList | null) {
+    const picked = files ? Array.from(files) : [];
+    if (!picked.length) return;
+    setQueue(picked);
+    setIndex(0);
+    loadFile(picked[0]);
+  }
+
+  /**
+   * This photo is not a bill — a blurred shot, the back of a receipt, a
+   * duplicate. Drop it from the batch and move the one behind it forward, so
+   * the count reflects what is actually left to do.
+   */
+  function dropCurrent() {
+    const next = queue.filter((_, i) => i !== index);
+    if (!next.length) {
+      setQueue([]);
+      setIndex(0);
+      setDraft(blank(defaultActivityNo));
+      setConfirm(null);
+      setNotice(null);
+      return;
+    }
+    // whichever photo shifts into this slot, or the last if this was the end
+    const at = Math.min(index, next.length - 1);
+    setQueue(next);
+    setIndex(at);
+    loadFile(next[at]);
+  }
+
   function stage(vendorId: string | null) {
     setStaged((s) => [...s, { ...draft, vendor_id: vendorId }]);
-    setDraft(blank(defaultActivityNo));
     setConfirm(null);
     setNotice(null);
+
+    // straight on to the next photo of the batch, already reading, so a pile
+    // of bills is checked in one pass rather than re-opened one at a time
+    const next = index + 1;
+    if (next < queue.length) {
+      setIndex(next);
+      loadFile(queue[next]);
+    } else {
+      setQueue([]);
+      setIndex(0);
+      setDraft(blank(defaultActivityNo));
+    }
   }
 
   function addToList() {
@@ -255,6 +300,27 @@ export function BillsModal({
 
           {/* photo — kept big so every field can be checked against it */}
           <div className="space-y-2 lg:sticky lg:top-0 lg:self-start">
+            {queue.length > 0 && (
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-[var(--muted)]">
+                  Photo {index + 1} of {queue.length}
+                </p>
+                {queue.length > 1 && (
+                  <div className="flex gap-1" aria-hidden="true">
+                    {queue.map((_, i) => (
+                      <span key={i}
+                        className={`h-1 w-4 rounded-full ${
+                          i < index
+                            ? "bg-[var(--brand)]"
+                            : i === index
+                              ? "bg-[var(--accent)]"
+                              : "bg-[var(--border)]"
+                        }`} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {draft.previewUrl ? (
               <>
                 <button type="button" onClick={() => setZoom(true)}
@@ -269,7 +335,7 @@ export function BillsModal({
                     View full size
                   </button>
                   <label htmlFor="bill-photo" className="cursor-pointer text-[var(--muted)] hover:text-[var(--text)]">
-                    {busy ? readingLabel : "Replace photo"}
+                    {busy ? readingLabel : "Choose other photos"}
                   </label>
                 </div>
               </>
@@ -282,16 +348,20 @@ export function BillsModal({
                   <circle cx="12" cy="12.5" r="3.5" />
                 </svg>
                 <span className="text-sm font-medium">
-                  {busy ? readingLabel : "Take a photo of the bill"}
+                  {busy ? readingLabel : "Take photos of the bills"}
                 </span>
                 <span className="text-xs text-[var(--muted)]">
-                  Opens the camera on a phone, or pick a file
+                  Pick as many as you like — they queue up one at a time
                 </span>
               </label>
             )}
-            <input id="bill-photo" type="file" accept="image/*" capture="environment"
+            <input id="bill-photo" type="file" accept="image/*" multiple
               className="sr-only"
-              onChange={(e) => onPhoto(e.target.files?.[0] ?? null)} />
+              onChange={(e) => {
+                onPhotos(e.target.files);
+                // so choosing the same batch twice still fires
+                e.target.value = "";
+              }} />
           </div>
 
           {/* everything read off it, editable */}
@@ -403,10 +473,23 @@ export function BillsModal({
             <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{notice}</p>
           )}
 
-          <button type="button" onClick={addToList} disabled={checking || busy}
-            className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)] disabled:opacity-50">
-            {checking ? "Checking shop…" : "+ Add to list"}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={addToList} disabled={checking || busy}
+              className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)] disabled:opacity-50">
+              {checking
+                ? "Checking shop…"
+                : queue.length > 1
+                  ? `+ Add to list and go to ${index + 2 <= queue.length ? `photo ${index + 2}` : "the end"}`
+                  : "+ Add to list"}
+            </button>
+
+            {queue.length > 0 && (
+              <button type="button" onClick={dropCurrent} disabled={busy}
+                className="rounded-lg px-3 py-2 text-sm text-[var(--muted)] transition-colors hover:text-red-700 disabled:opacity-50">
+                Remove this photo
+              </button>
+            )}
+          </div>
 
           {/* staged */}
           {staged.length > 0 && (
