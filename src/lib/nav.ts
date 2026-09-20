@@ -40,6 +40,13 @@ export const NAV: NavGroup[] = [
       { href: "/gst", label: "GST Input Schedule", roles: MONEY },
     ],
   },
+  {
+    group: "Admin",
+    defaultOpen: true,
+    items: [
+      { href: "/settings", label: "Company", roles: MONEY },
+    ],
+  },
 ];
 
 /** Shortcuts pinned above the navigation. Only routes present in NAV show. */

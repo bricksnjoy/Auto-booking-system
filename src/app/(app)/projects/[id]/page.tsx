@@ -41,6 +41,7 @@ export default async function ProjectDetailPage({
     { data: splits },
     { data: variations },
     { data: categories },
+    { data: company },
   ] = await Promise.all([
     supabase.from("projects").select("*, clients(name)").eq("id", id).single(),
     supabase.from("project_phases").select("*").eq("project_id", id).order("sort_order"),
@@ -56,6 +57,7 @@ export default async function ProjectDetailPage({
     supabase.from("project_investor_splits").select("*").eq("project_id", id),
     supabase.from("variations").select("*").eq("project_id", id).order("raised_date"),
     supabase.from("cost_categories").select("id, name").order("sort_order"),
+    supabase.from("company").select("taxable_activity_no").eq("id", true).maybeSingle(),
   ]);
 
   // sign the stored bill photos so they can be shown without making the
@@ -268,7 +270,11 @@ export default async function ProjectDetailPage({
             rows={billRows}
             categories={categories ?? []}
             defaultActivityNo={
-              billRows.find((b) => b.taxable_activity_no)?.taxable_activity_no ?? null
+              // the company's own number, falling back to whatever the last
+              // bill was filed under until it has been set
+              company?.taxable_activity_no ??
+              billRows.find((b) => b.taxable_activity_no)?.taxable_activity_no ??
+              null
             }
             autoReadOn={extractionAvailable()}
           />
