@@ -52,21 +52,36 @@ Extract exactly what is printed. Rules:
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+const READ_PROMPT = "Read this bill and extract its details.";
+
+/** Whichever reader the server is set up for, in order of preference. */
+export function reader(): "claude" | "gemini" | null {
+  if (process.env.ANTHROPIC_API_KEY) return "claude";
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini";
+  return null;
+}
+
 /** True when the server is configured to read bills automatically. */
 export function extractionAvailable() {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return reader() !== null;
 }
 
 export async function extractBill(
   fileBytes: Buffer,
   mimeType: string,
 ): Promise<ExtractedBill> {
-  if (!extractionAvailable()) {
+  const which = reader();
+  if (!which) {
     throw new Error(
-      "Auto-reading is not configured. Set ANTHROPIC_API_KEY to switch it on, or type the bill in by hand.",
+      "Auto-reading is not configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY to switch it on, or type the bill in by hand.",
     );
   }
+  return which === "claude"
+    ? withClaude(fileBytes, mimeType)
+    : withGemini(fileBytes, mimeType);
+}
 
+async function withClaude(fileBytes: Buffer, mimeType: string): Promise<ExtractedBill> {
   const client = new Anthropic();
   const data = fileBytes.toString("base64");
 
@@ -99,7 +114,7 @@ export async function extractBill(
     messages: [
       {
         role: "user",
-        content: [source, { type: "text", text: "Read this bill and extract its details." }],
+        content: [source, { type: "text", text: READ_PROMPT }],
       },
     ],
   });
@@ -111,4 +126,58 @@ export async function extractBill(
   const parsed = response.parsed_output;
   if (!parsed) throw new Error("Could not read a bill out of this image.");
   return parsed;
+}
+
+/**
+ * Gemini instead, for anyone running on its free tier. Same schema and the
+ * same prompt, so a bill reads the same whichever key is set — note that on
+ * Google's free tier the bills submitted may be used to improve their models,
+ * which the paid tier and Anthropic both exclude.
+ */
+async function withGemini(fileBytes: Buffer, mimeType: string): Promise<ExtractedBill> {
+  const { GoogleGenAI } = await import("@google/genai");
+  const ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
+  });
+
+  const res = await ai.models.generateContent({
+    model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            inlineData: {
+              mimeType:
+                mimeType === "application/pdf" || IMAGE_TYPES.includes(mimeType)
+                  ? mimeType
+                  : "image/jpeg",
+              data: fileBytes.toString("base64"),
+            },
+          },
+          { text: READ_PROMPT },
+        ],
+      },
+    ],
+    config: {
+      systemInstruction: SYSTEM,
+      responseMimeType: "application/json",
+      responseJsonSchema: z.toJSONSchema(BillSchema),
+      temperature: 0,
+    },
+  });
+
+  const text = res.text;
+  if (!text) throw new Error("Could not read a bill out of this image.");
+
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error("The reader returned something that was not a bill.");
+  }
+
+  const parsed = BillSchema.safeParse(json);
+  if (!parsed.success) throw new Error("Could not read a bill out of this image.");
+  return parsed.data;
 }

@@ -27,7 +27,7 @@ export type ExtractResult = {
 /** Read a photographed bill and hand the fields back for checking. */
 export async function readBillPhoto(_prev: unknown, fd: FormData): Promise<ExtractResult> {
   if (!extractionAvailable()) {
-    return { error: "Auto-reading is off on this server. Type the bill in instead." };
+    return { error: "No reader key is set on this server, so the bill was read on your device instead." };
   }
 
   const file = fd.get("photo");
