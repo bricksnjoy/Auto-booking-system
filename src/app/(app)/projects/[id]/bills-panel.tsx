@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Card, CardHeader, Table, Th, Td, Empty } from "@/components/ui";
 import { money, date, num } from "@/lib/format";
 import { addBill, updateBill, deleteBill } from "@/app/actions/project-items";
-import type { Result } from "@/app/actions/projects";
+import type { BillResult } from "@/app/actions/project-items";
 
 export interface BillRow {
   id: string;
@@ -40,20 +40,33 @@ export function BillsPanel({
   /** carried over from the last bill entered, since it rarely changes */
   defaultActivityNo?: string | null;
 }) {
-  const [state, action, pending] = useActionState(addBill, null as Result | null);
+  const [state, action, pending] = useActionState(addBill, null as BillResult | null);
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<BillRow | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
+  // the answer to a "is this the right shop?" prompt, resubmitted with the form
+  const [choice, setChoice] = useState<{
+    vendorId?: string;
+    createNew?: boolean;
+    tinAction?: "keep" | "update";
+  } | null>(null);
+
   // clear the form once a bill saves, ready for the next one
   useEffect(() => {
     if (state?.ok) {
       formRef.current?.reset();
       setPreview(null);
+      setChoice(null);
     }
   }, [state]);
+
+  // once a choice is made, send the same form again with it attached
+  useEffect(() => {
+    if (choice) formRef.current?.requestSubmit();
+  }, [choice]);
 
   const total = rows.reduce((s, r) => s + num(r.total), 0);
 
@@ -80,6 +93,17 @@ export function BillsPanel({
           <form ref={formRef} action={action}
             className="space-y-3 border-b border-[var(--border)] px-5 py-4">
             <input type="hidden" name="project_id" value={projectId} />
+            <input type="hidden" name="confirm_vendor_id" value={choice?.vendorId ?? ""} />
+            <input type="hidden" name="create_new_vendor" value={choice?.createNew ? "1" : ""} />
+            <input type="hidden" name="tin_action" value={choice?.tinAction ?? ""} />
+
+            {state?.confirm && (
+              <VendorConfirmPanel
+                confirm={state.confirm}
+                pending={pending}
+                onChoose={setChoice}
+              />
+            )}
 
             {/* photo — capture opens the camera directly on a phone */}
             <div>
@@ -339,5 +363,114 @@ export function BillsPanel({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Shown when the shop on a bill does not cleanly match one already on file.
+ * A photographed receipt misreads names and TINs, and either answer — same
+ * shop or new one — is wrong often enough that it has to be asked rather
+ * than guessed.
+ */
+function VendorConfirmPanel({
+  confirm,
+  pending,
+  onChoose,
+}: {
+  confirm: NonNullable<BillResult["confirm"]>;
+  pending: boolean;
+  onChoose: (c: {
+    vendorId?: string;
+    createNew?: boolean;
+    tinAction?: "keep" | "update";
+  }) => void;
+}) {
+  const pick =
+    "rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--hover)] disabled:opacity-50";
+  const primary =
+    "rounded-lg bg-[var(--brand)] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50";
+
+  const first = confirm.candidates[0];
+
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+      <p className="text-sm font-medium text-amber-900">
+        {confirm.kind === "tin_mismatch"
+          ? "Is this the right shop?"
+          : confirm.kind === "tin_match"
+            ? "That TIN is already on file"
+            : "Did you mean an existing shop?"}
+      </p>
+
+      {confirm.kind === "tin_mismatch" && first && (
+        <>
+          <p className="mt-1 text-xs text-amber-900">
+            <span className="font-medium">{first.name}</span> is on file with TIN{" "}
+            <span className="font-mono">{first.tin}</span>, but this bill reads{" "}
+            <span className="font-mono">{confirm.entered_tin}</span>. A blurry photo
+            misreads digits — which is right?
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" disabled={pending} className={primary}
+              onClick={() => onChoose({ vendorId: first.id, tinAction: "keep" })}>
+              Keep {first.tin}
+            </button>
+            <button type="button" disabled={pending} className={pick}
+              onClick={() => onChoose({ vendorId: first.id, tinAction: "update" })}>
+              Update to {confirm.entered_tin}
+            </button>
+            <button type="button" disabled={pending} className={pick}
+              onClick={() => onChoose({ createNew: true })}>
+              Different shop — add as new
+            </button>
+          </div>
+        </>
+      )}
+
+      {confirm.kind === "tin_match" && first && (
+        <>
+          <p className="mt-1 text-xs text-amber-900">
+            TIN <span className="font-mono">{confirm.entered_tin}</span> belongs to{" "}
+            <span className="font-medium">{first.name}</span>, but the bill reads{" "}
+            <span className="font-medium">{confirm.entered_name}</span>. The name was
+            probably misread.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" disabled={pending} className={primary}
+              onClick={() => onChoose({ vendorId: first.id })}>
+              Yes, it is {first.name}
+            </button>
+            <button type="button" disabled={pending} className={pick}
+              onClick={() => onChoose({ createNew: true })}>
+              No, add {confirm.entered_name} as new
+            </button>
+          </div>
+        </>
+      )}
+
+      {confirm.kind === "similar_name" && (
+        <>
+          <p className="mt-1 text-xs text-amber-900">
+            Nothing on file is called{" "}
+            <span className="font-medium">{confirm.entered_name}</span>, but these are
+            close. Picking the right one keeps the supplier together in the GST
+            schedule.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {confirm.candidates.map((c) => (
+              <button key={c.id} type="button" disabled={pending} className={primary}
+                onClick={() => onChoose({ vendorId: c.id, tinAction: "update" })}>
+                {c.name}
+                {c.tin && <span className="ml-1 font-mono opacity-70">{c.tin}</span>}
+              </button>
+            ))}
+            <button type="button" disabled={pending} className={pick}
+              onClick={() => onChoose({ createNew: true })}>
+              None — add {confirm.entered_name} as new
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

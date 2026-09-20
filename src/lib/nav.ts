@@ -31,6 +31,12 @@ export const NAV: NavGroup[] = [
       { href: "/clients", label: "Clients", roles: ALL },
       { href: "/tasks", label: "Tasks & Calendar", roles: ALL },
       { href: "/pnl", label: "Project P&L", roles: MONEY },
+    ],
+  },
+  {
+    group: "Finance",
+    defaultOpen: true,
+    items: [
       { href: "/gst", label: "GST Input Schedule", roles: MONEY },
     ],
   },

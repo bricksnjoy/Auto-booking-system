@@ -99,12 +99,118 @@ export async function deleteVariation(id: string, projectId: string) {
 
 const MAX_BYTES = 20 * 1024 * 1024;
 
+export type VendorCandidate = {
+  id: string;
+  name: string;
+  tin: string | null;
+  score: number;
+  match_kind: "exact" | "tin_match" | "similar";
+};
+
+/** Raised when the shop on a bill does not cleanly match one already on file. */
+export type VendorConfirm = {
+  kind: "tin_mismatch" | "tin_match" | "similar_name";
+  entered_name: string;
+  entered_tin: string | null;
+  candidates: VendorCandidate[];
+};
+
+export type BillResult = Result & { confirm?: VendorConfirm };
+
+const normaliseTin = (t: string | null) =>
+  t ? t.replace(/\s/g, "").toUpperCase() : null;
+
+/**
+ * Work out which shop a bill belongs to.
+ *
+ * Bills are photographed, and a blurry photo misreads names and TINs. Rather
+ * than trusting the text — which would quietly create "Sonee Hardwre" beside
+ * "Sonee Hardware", splitting a supplier across two entries in the GST
+ * schedule — anything short of a clean match is handed back for a human to
+ * confirm.
+ *
+ * Once confirmed, the caller resubmits with confirm_vendor_id or
+ * create_new_vendor and this runs straight through.
+ */
+async function resolveVendor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fd: FormData,
+): Promise<{ vendorId?: string | null; confirm?: VendorConfirm; error?: string }> {
+  const shop = text(fd, "shop");
+  if (!shop) return { error: "Enter the shop or supplier name." };
+  const tin = text(fd, "supplier_tin");
+
+  // already answered by the person entering the bill
+  const confirmed = text(fd, "confirm_vendor_id");
+  if (confirmed) {
+    if (tin && String(fd.get("tin_action") ?? "") === "update") {
+      await supabase.from("vendors").update({ tin }).eq("id", confirmed);
+    }
+    return { vendorId: confirmed };
+  }
+  if (String(fd.get("create_new_vendor") ?? "") === "1") {
+    const { data } = await supabase
+      .from("vendors")
+      .insert({ name: shop, kind: "supplier", is_approved: true, tin })
+      .select("id")
+      .single();
+    return { vendorId: data?.id ?? null };
+  }
+
+  const { data } = await supabase.rpc("find_similar_vendors", {
+    p_name: shop,
+    p_tin: tin,
+  });
+  const candidates = (data ?? []) as VendorCandidate[];
+  const exact = candidates.find((c) => c.match_kind === "exact");
+
+  if (exact) {
+    // same shop, but the TIN read off this bill disagrees with the one on
+    // file — one of the two is a misread, and only a human knows which
+    if (tin && exact.tin && normaliseTin(exact.tin) !== normaliseTin(tin)) {
+      return {
+        confirm: {
+          kind: "tin_mismatch",
+          entered_name: shop,
+          entered_tin: tin,
+          candidates: [exact],
+        },
+      };
+    }
+    // first TIN seen for a known shop: record it
+    if (tin && !exact.tin) {
+      await supabase.from("vendors").update({ tin }).eq("id", exact.id);
+    }
+    return { vendorId: exact.id };
+  }
+
+  if (candidates.length > 0) {
+    const byTin = candidates.some((c) => c.match_kind === "tin_match");
+    return {
+      confirm: {
+        kind: byTin ? "tin_match" : "similar_name",
+        entered_name: shop,
+        entered_tin: tin,
+        candidates,
+      },
+    };
+  }
+
+  // nothing like it on file — a genuinely new supplier
+  const { data: created } = await supabase
+    .from("vendors")
+    .insert({ name: shop, kind: "supplier", is_approved: true, tin })
+    .select("id")
+    .single();
+  return { vendorId: created?.id ?? null };
+}
+
 /**
  * Record a bill against a project. A photo is optional but usual — it is
  * stored in the private "bills" bucket and the path kept on the row, so the
  * original is always available behind the figure.
  */
-export async function addBill(_prev: unknown, fd: FormData): Promise<Result> {
+export async function addBill(_prev: unknown, fd: FormData): Promise<BillResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -120,10 +226,15 @@ export async function addBill(_prev: unknown, fd: FormData): Promise<Result> {
   const total = number(fd, "total");
   if (total <= 0) return { error: "Enter the bill total." };
 
+  // Settle the shop before touching storage: a confirmation round would
+  // otherwise leave an orphaned upload behind on every pass.
+  const resolved = await resolveVendor(supabase, fd);
+  if (resolved.error) return { error: resolved.error };
+  if (resolved.confirm) return { confirm: resolved.confirm };
+
   const gst = number(fd, "tax_amount");
   const net = number(fd, "subtotal") || total - gst;
 
-  // photo -> private storage
   let attachmentPath: string | null = null;
   const file = fd.get("photo");
   if (file instanceof File && file.size > 0) {
@@ -138,30 +249,6 @@ export async function addBill(_prev: unknown, fd: FormData): Promise<Result> {
     attachmentPath = path;
   }
 
-  // Match the shop to a vendor, creating one the first time it appears.
-  // The TIN lives on the shop, so entering it once fills it in for every
-  // later invoice from the same supplier.
-  const tin = text(fd, "supplier_tin");
-  let vendorId: string | null = null;
-  const { data: vendor } = await supabase
-    .from("vendors")
-    .select("id, tin")
-    .ilike("name", shop)
-    .maybeSingle();
-  if (vendor) {
-    vendorId = vendor.id;
-    if (tin && tin !== vendor.tin) {
-      await supabase.from("vendors").update({ tin }).eq("id", vendor.id);
-    }
-  } else {
-    const { data: created } = await supabase
-      .from("vendors")
-      .insert({ name: shop, kind: "supplier", is_approved: true, tin })
-      .select("id")
-      .single();
-    vendorId = created?.id ?? null;
-  }
-
   const { count } = await supabase
     .from("bills")
     .select("id", { count: "exact", head: true })
@@ -169,7 +256,7 @@ export async function addBill(_prev: unknown, fd: FormData): Promise<Result> {
 
   const { error } = await supabase.from("bills").insert({
     bill_no: text(fd, "bill_no") ?? `B-${String((count ?? 0) + 1).padStart(3, "0")}`,
-    vendor_id: vendorId,
+    vendor_id: resolved.vendorId,
     project_id: projectId,
     category_id: text(fd, "category_id"),
     status: "paid",
@@ -190,6 +277,7 @@ export async function addBill(_prev: unknown, fd: FormData): Promise<Result> {
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/pnl");
   revalidatePath("/projects");
+  revalidatePath("/gst");
   revalidatePath("/");
   return { ok: true };
 }

@@ -24,7 +24,7 @@ export default async function GstPage() {
     <div>
       <PageHeader
         title="GST input schedule"
-        subtitle="Purchase invoices in the MIRA filing layout"
+        subtitle="Every project's purchase invoices, by filing quarter, in the MIRA layout"
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

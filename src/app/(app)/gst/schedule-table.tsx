@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Card, CardHeader, Table, Th, Td, Empty } from "@/components/ui";
 import { moneyExact, date, num } from "@/lib/format";
+import { quartersFrom, quarterOf } from "@/lib/quarters";
 
 export interface ScheduleRow {
   id: string;
@@ -19,19 +20,18 @@ export interface ScheduleRow {
   project_code: string | null;
 }
 
-/** yyyy-mm of a date string, for the period filter */
-const monthOf = (d: string | null) => (d ? String(d).slice(0, 7) : "");
-
 export function ScheduleTable({ rows }: { rows: ScheduleRow[] }) {
-  const months = useMemo(
-    () =>
-      [...new Set(rows.map((r) => monthOf(r.invoice_date)).filter(Boolean))].sort().reverse(),
-    [rows],
-  );
-  const [period, setPeriod] = useState("all");
+  // GST returns are filed per quarter, so that is the unit the page works in
+  const quarters = useMemo(() => quartersFrom(rows.map((r) => r.invoice_date)), [rows]);
+
+  // default to the most recent quarter with invoices in it — the one being filed
+  const [period, setPeriod] = useState(() => quarters[0]?.key ?? "all");
 
   const shown = useMemo(
-    () => (period === "all" ? rows : rows.filter((r) => monthOf(r.invoice_date) === period)),
+    () =>
+      period === "all"
+        ? rows
+        : rows.filter((r) => quarterOf(r.invoice_date)?.key === period),
     [rows, period],
   );
 
@@ -47,61 +47,25 @@ export function ScheduleTable({ rows }: { rows: ScheduleRow[] }) {
 
   const missingTin = shown.filter((r) => !r.supplier_tin).length;
 
-  function exportCsv() {
-    const header = [
-      "#", "Supplier TIN", "Supplier Name", "Supplier Invoice Number", "Invoice Date",
-      "Invoice Total (excluding GST)", "GST Charged at 6%", "GST Charged at 8%",
-      "GST Charged at 12%", "Your Taxable Activity Number", "Revenue / Capital",
-    ];
-    const esc = (v: unknown) => {
-      const s = v === null || v === undefined ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const lines = [
-      header.join(","),
-      ...shown.map((r, i) =>
-        [
-          i + 1,
-          r.supplier_tin ?? "",
-          r.supplier_name ?? "",
-          r.supplier_invoice_number ?? "",
-          r.invoice_date ?? "",
-          num(r.invoice_total_excl_gst).toFixed(2),
-          num(r.gst_at_6).toFixed(2),
-          num(r.gst_at_8).toFixed(2),
-          num(r.gst_at_12).toFixed(2),
-          r.taxable_activity_no ?? "",
-          r.expense_class === "capital" ? "Capital" : "Revenue",
-        ].map(esc).join(","),
-      ),
-    ];
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `gst-input-schedule-${period === "all" ? "all" : period}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <label htmlFor="period" className="text-sm text-[var(--muted)]">Period</label>
         <select id="period" value={period} onChange={(e) => setPeriod(e.target.value)}
           className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)]">
-          <option value="all">All time</option>
-          {months.map((m) => (
-            <option key={m} value={m}>
-              {new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" })
-                .format(new Date(`${m}-01`))}
-            </option>
+          {quarters.map((q) => (
+            <option key={q.key} value={q.key}>{q.label}</option>
           ))}
+          <option value="all">All quarters</option>
         </select>
-        <button type="button" onClick={exportCsv} disabled={shown.length === 0}
-          className="ml-auto rounded-lg bg-[var(--brand)] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50">
-          Export CSV
-        </button>
+        <a
+          href={`/gst/export?period=${encodeURIComponent(period)}`}
+          className={`ml-auto rounded-lg bg-[var(--brand)] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-hover)] ${
+            shown.length === 0 ? "pointer-events-none opacity-50" : ""
+          }`}
+        >
+          Download Excel
+        </a>
       </div>
 
       {missingTin > 0 && (
