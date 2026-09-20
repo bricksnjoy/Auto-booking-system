@@ -11,7 +11,11 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  const [{ data: pnl }, { data: upcoming }] = await Promise.all([
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const [{ data: pnl }, { data: upcoming }, { data: profile }] = await Promise.all([
     supabase.from("project_pnl").select("*").order("code"),
     supabase
       .from("project_tasks")
@@ -20,7 +24,13 @@ export default async function DashboardPage() {
       .not("due_date", "is", null)
       .order("due_date", { ascending: true })
       .limit(6),
+    user
+      ? supabase.from("profiles").select("full_name").eq("id", user.id).single()
+      : Promise.resolve({ data: null }),
   ]);
+
+  // first name only — "Welcome back, Muaz" rather than the full legal name
+  const firstName = (profile?.full_name ?? "").trim().split(/\s+/)[0];
 
   const projects = (pnl ?? []) as ProjectPnl[];
   const active = projects.filter((p) =>
@@ -34,7 +44,10 @@ export default async function DashboardPage() {
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Where the projects stand" />
+      <PageHeader
+        title={firstName ? `Welcome back, ${firstName}` : "Welcome back"}
+        subtitle="Where the projects stand"
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
