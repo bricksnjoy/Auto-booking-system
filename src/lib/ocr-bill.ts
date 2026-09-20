@@ -197,6 +197,9 @@ export function parseBillText(text: string, ocrConfidence: number): OcrFields {
   let subtotal = subLine ? (amountOn(subLine) ?? 0) : 0;
 
   // the rate is usually printed beside the GST line
+  // what was actually printed, before anything is worked out from the rest
+  const printedAll = Boolean(subtotal && tax_amount && total);
+
   const rateHit = (gstLine ?? text).match(/\b(6|8|12)\s*%/);
   let gst_rate = rateHit ? Number(rateHit[1]) : 8;
   let splitWasCalculated = false;
@@ -221,10 +224,11 @@ export function parseBillText(text: string, ocrConfidence: number): OcrFields {
 
   // sanity: the three have to agree, or the read is not trustworthy
   const notes: string[] = [];
-  if (total && subtotal && tax_amount) {
-    if (Math.abs(subtotal + tax_amount - total) > 0.5) {
-      notes.push("Net + GST does not add up to the total — check all three.");
-    }
+  const amountsDisagree =
+    Boolean(total && subtotal && tax_amount) &&
+    Math.abs(subtotal + tax_amount - total) > 0.5;
+  if (amountsDisagree) {
+    notes.push("Net + GST does not add up to the total — check all three.");
   }
   if (!total) notes.push("No total found; enter it by hand.");
   if (!shop) notes.push("Shop name not found.");
@@ -235,9 +239,25 @@ export function parseBillText(text: string, ocrConfidence: number): OcrFields {
     );
   }
 
-  // confidence: Tesseract's own, pulled down for every field it missed
-  const missing = [shop, supplier_tin, issue_date].filter((v) => !v).length + (total ? 0 : 2);
-  const confidence = Math.max(5, Math.round(Math.min(ocrConfidence, 85) - missing * 12));
+  // Confidence answers "how much of this can be taken on trust", so it starts
+  // from how cleanly the text read and is adjusted by what the fields say
+  // about each other. Fields are weighted by what it costs to get them wrong:
+  // a bad total is a bad P&L, while a missing TIN is often just a shop that
+  // does not print one.
+  let confidence = ocrConfidence;
+  if (!total) confidence -= 30;
+  if (!shop) confidence -= 10;
+  if (!issue_date) confidence -= 8;
+  if (!supplier_tin) confidence -= 5;
+  if (splitWasCalculated) confidence -= 5;
+  // the three amounts agreeing to the laariyaa is hard to get wrong by
+  // accident, so it is the strongest evidence the numbers were read right
+  if (printedAll && Math.abs(subtotal + tax_amount - total) < 0.02) {
+    confidence += 10;
+  } else if (amountsDisagree) {
+    confidence -= 25;
+  }
+  confidence = Math.max(5, Math.min(97, Math.round(confidence)));
 
   return {
     shop,
