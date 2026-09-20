@@ -1,11 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import { Card, CardHeader, Table, Th, Td, Empty } from "@/components/ui";
 import { money, date, num } from "@/lib/format";
-import { addBill, updateBill, deleteBill } from "@/app/actions/project-items";
-import type { BillResult } from "@/app/actions/project-items";
+import { updateBill, deleteBill } from "@/app/actions/project-items";
+import { BillsModal } from "./bills-modal";
 
 export interface BillRow {
   id: string;
@@ -33,47 +33,21 @@ export function BillsPanel({
   rows,
   categories,
   defaultActivityNo,
+  autoReadOn,
 }: {
   projectId: string;
   rows: BillRow[];
   categories: { id: string; name: string }[];
   /** carried over from the last bill entered, since it rarely changes */
   defaultActivityNo?: string | null;
+  /** whether the server can read bills off their photos */
+  autoReadOn: boolean;
 }) {
-  const [state, action, pending] = useActionState(addBill, null as BillResult | null);
   const [open, setOpen] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<BillRow | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  // the answer to a "is this the right shop?" prompt, resubmitted with the form
-  const [choice, setChoice] = useState<{
-    vendorId?: string;
-    createNew?: boolean;
-    tinAction?: "keep" | "update";
-  } | null>(null);
-
-  // clear the form once a bill saves, ready for the next one
-  useEffect(() => {
-    if (state?.ok) {
-      formRef.current?.reset();
-      setPreview(null);
-      setChoice(null);
-    }
-  }, [state]);
-
-  // once a choice is made, send the same form again with it attached
-  useEffect(() => {
-    if (choice) formRef.current?.requestSubmit();
-  }, [choice]);
 
   const total = rows.reduce((s, r) => s + num(r.total), 0);
-
-  function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    setPreview(f ? URL.createObjectURL(f) : null);
-  }
 
   return (
     <>
@@ -82,140 +56,12 @@ export function BillsPanel({
           title="Bills"
           subtitle={`${rows.length} bills · ${money(total)} — this is the project's EXP`}
           action={
-            <button type="button" onClick={() => setOpen((v) => !v)}
+            <button type="button" onClick={() => setOpen(true)}
               className="text-xs font-medium text-[var(--brand)] hover:underline">
-              {open ? "Close" : "+ Add bill"}
+              + Add bill
             </button>
           }
         />
-
-        {open && (
-          <form ref={formRef} action={action}
-            className="space-y-3 border-b border-[var(--border)] px-5 py-4">
-            <input type="hidden" name="project_id" value={projectId} />
-            <input type="hidden" name="confirm_vendor_id" value={choice?.vendorId ?? ""} />
-            <input type="hidden" name="create_new_vendor" value={choice?.createNew ? "1" : ""} />
-            <input type="hidden" name="tin_action" value={choice?.tinAction ?? ""} />
-
-            {state?.confirm && (
-              <VendorConfirmPanel
-                confirm={state.confirm}
-                pending={pending}
-                onChoose={setChoice}
-              />
-            )}
-
-            {/* photo — capture opens the camera directly on a phone */}
-            <div>
-              <label htmlFor="photo"
-                className="flex cursor-pointer items-center gap-3 rounded-lg border-2 border-dashed border-[var(--border)] px-4 py-3 transition-colors hover:border-[var(--brand)] hover:bg-[var(--hover)]">
-                {preview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={preview} alt="" className="h-16 w-16 rounded object-cover" />
-                ) : (
-                  <span className="flex h-16 w-16 items-center justify-center rounded bg-[var(--hover)]">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                      strokeWidth="1.5" className="text-[var(--muted)]" aria-hidden="true">
-                      <path d="M3 8a2 2 0 012-2h2l1.5-2h7L17 6h2a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
-                      <circle cx="12" cy="12.5" r="3.5" />
-                    </svg>
-                  </span>
-                )}
-                <span className="text-sm">
-                  <span className="block font-medium">
-                    {preview ? "Photo attached — tap to replace" : "Take a photo of the bill"}
-                  </span>
-                  <span className="block text-xs text-[var(--muted)]">
-                    Opens the camera on a phone, or pick a file
-                  </span>
-                </span>
-              </label>
-              <input id="photo" name="photo" type="file" accept="image/*" capture="environment"
-                onChange={onPhoto} className="sr-only" />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <label className={tiny}>Shop / supplier</label>
-                <input name="shop" required className={input} placeholder="Sonee Hardware" />
-              </div>
-              <div>
-                <label className={tiny}>Supplier TIN</label>
-                <input name="supplier_tin" className={input} placeholder="1000000GST501" />
-              </div>
-              <div>
-                <label className={tiny}>What was bought</label>
-                <input name="description" className={input} placeholder="Cement and fixings" />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-5">
-              <div>
-                <label className={tiny}>Net (excl GST)</label>
-                <input name="subtotal" type="number" step="0.01" className={input} />
-              </div>
-              <div>
-                <label className={tiny}>GST rate</label>
-                <select name="gst_rate" defaultValue="6" className={input}>
-                  <option value="0">No GST</option>
-                  <option value="6">6%</option>
-                  <option value="8">8%</option>
-                  <option value="12">12%</option>
-                </select>
-              </div>
-              <div>
-                <label className={tiny}>GST charged</label>
-                <input name="tax_amount" type="number" step="0.01" className={input} />
-              </div>
-              <div>
-                <label className={tiny}>Total</label>
-                <input name="total" type="number" step="0.01" required className={input} />
-              </div>
-              <div>
-                <label className={tiny}>Date</label>
-                <input name="issue_date" type="date"
-                  defaultValue={new Date().toISOString().slice(0, 10)} className={input} />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-4">
-              <div>
-                <label className={tiny}>Invoice number</label>
-                <input name="bill_no" className={input} placeholder="Auto" />
-              </div>
-              <div>
-                <label className={tiny}>Category</label>
-                <select name="category_id" defaultValue="" className={input}>
-                  <option value="">Uncategorised</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className={tiny}>Taxable activity no.</label>
-                <input name="taxable_activity_no" defaultValue={defaultActivityNo ?? ""}
-                  className={input} placeholder="Yours" />
-              </div>
-              <div>
-                <label className={tiny}>Revenue / capital</label>
-                <select name="expense_class" defaultValue="revenue" className={input}>
-                  <option value="revenue">Revenue</option>
-                  <option value="capital">Capital</option>
-                </select>
-              </div>
-            </div>
-
-            {state?.error && (
-              <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{state.error}</p>
-            )}
-
-            <button type="submit" disabled={pending}
-              className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-60">
-              {pending ? "Saving…" : "Add bill"}
-            </button>
-          </form>
-        )}
 
         {rows.length === 0 ? (
           <Empty message="No bills yet. Add one and its total feeds straight into EXP." />
@@ -362,115 +208,15 @@ export function BillsPanel({
           </div>
         </div>
       )}
+
+      <BillsModal
+        open={open}
+        onClose={() => setOpen(false)}
+        projectId={projectId}
+        categories={categories}
+        defaultActivityNo={defaultActivityNo ?? ""}
+        autoReadOn={autoReadOn}
+      />
     </>
-  );
-}
-
-/**
- * Shown when the shop on a bill does not cleanly match one already on file.
- * A photographed receipt misreads names and TINs, and either answer — same
- * shop or new one — is wrong often enough that it has to be asked rather
- * than guessed.
- */
-function VendorConfirmPanel({
-  confirm,
-  pending,
-  onChoose,
-}: {
-  confirm: NonNullable<BillResult["confirm"]>;
-  pending: boolean;
-  onChoose: (c: {
-    vendorId?: string;
-    createNew?: boolean;
-    tinAction?: "keep" | "update";
-  }) => void;
-}) {
-  const pick =
-    "rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--hover)] disabled:opacity-50";
-  const primary =
-    "rounded-lg bg-[var(--brand)] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50";
-
-  const first = confirm.candidates[0];
-
-  return (
-    <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
-      <p className="text-sm font-medium text-amber-900">
-        {confirm.kind === "tin_mismatch"
-          ? "Is this the right shop?"
-          : confirm.kind === "tin_match"
-            ? "That TIN is already on file"
-            : "Did you mean an existing shop?"}
-      </p>
-
-      {confirm.kind === "tin_mismatch" && first && (
-        <>
-          <p className="mt-1 text-xs text-amber-900">
-            <span className="font-medium">{first.name}</span> is on file with TIN{" "}
-            <span className="font-mono">{first.tin}</span>, but this bill reads{" "}
-            <span className="font-mono">{confirm.entered_tin}</span>. A blurry photo
-            misreads digits — which is right?
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" disabled={pending} className={primary}
-              onClick={() => onChoose({ vendorId: first.id, tinAction: "keep" })}>
-              Keep {first.tin}
-            </button>
-            <button type="button" disabled={pending} className={pick}
-              onClick={() => onChoose({ vendorId: first.id, tinAction: "update" })}>
-              Update to {confirm.entered_tin}
-            </button>
-            <button type="button" disabled={pending} className={pick}
-              onClick={() => onChoose({ createNew: true })}>
-              Different shop — add as new
-            </button>
-          </div>
-        </>
-      )}
-
-      {confirm.kind === "tin_match" && first && (
-        <>
-          <p className="mt-1 text-xs text-amber-900">
-            TIN <span className="font-mono">{confirm.entered_tin}</span> belongs to{" "}
-            <span className="font-medium">{first.name}</span>, but the bill reads{" "}
-            <span className="font-medium">{confirm.entered_name}</span>. The name was
-            probably misread.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" disabled={pending} className={primary}
-              onClick={() => onChoose({ vendorId: first.id })}>
-              Yes, it is {first.name}
-            </button>
-            <button type="button" disabled={pending} className={pick}
-              onClick={() => onChoose({ createNew: true })}>
-              No, add {confirm.entered_name} as new
-            </button>
-          </div>
-        </>
-      )}
-
-      {confirm.kind === "similar_name" && (
-        <>
-          <p className="mt-1 text-xs text-amber-900">
-            Nothing on file is called{" "}
-            <span className="font-medium">{confirm.entered_name}</span>, but these are
-            close. Picking the right one keeps the supplier together in the GST
-            schedule.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {confirm.candidates.map((c) => (
-              <button key={c.id} type="button" disabled={pending} className={primary}
-                onClick={() => onChoose({ vendorId: c.id, tinAction: "update" })}>
-                {c.name}
-                {c.tin && <span className="ml-1 font-mono opacity-70">{c.tin}</span>}
-              </button>
-            ))}
-            <button type="button" disabled={pending} className={pick}
-              onClick={() => onChoose({ createNew: true })}>
-              None — add {confirm.entered_name} as new
-            </button>
-          </div>
-        </>
-      )}
-    </div>
   );
 }

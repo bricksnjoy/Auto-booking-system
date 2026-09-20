@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   Card, CardHeader, PageHeader, Stat, Badge, Progress, Table, Th, Td, Empty,
 } from "@/components/ui";
+import { extractionAvailable } from "@/lib/extract-bill";
 import { money, date, num, pct } from "@/lib/format";
 import type { ProjectPnl, InvestorSplit } from "@/lib/types";
 import { VariationsPanel } from "./variations-panel";
@@ -267,6 +268,7 @@ export default async function ProjectDetailPage({
             defaultActivityNo={
               billRows.find((b) => b.taxable_activity_no)?.taxable_activity_no ?? null
             }
+            autoReadOn={extractionAvailable()}
           />
         </div>
 
