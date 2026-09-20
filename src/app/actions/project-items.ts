@@ -109,7 +109,7 @@ export type VendorCandidate = {
 
 /** Raised when the shop on a bill does not cleanly match one already on file. */
 export type VendorConfirm = {
-  kind: "tin_mismatch" | "tin_match" | "similar_name";
+  kind: "tin_mismatch" | "tin_match" | "similar_name" | "new_shop";
   entered_name: string;
   entered_tin: string | null;
   candidates: VendorCandidate[];

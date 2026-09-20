@@ -19,6 +19,8 @@ export type ExtractResult = {
     total: number;
     description: string;
     expense_class: "revenue" | "capital";
+    /** the cost category the reader chose, matched back to your own list */
+    category_id: string;
     confidence: number;
     notes: string;
   };
@@ -35,8 +37,22 @@ export async function readBillPhoto(_prev: unknown, fd: FormData): Promise<Extra
   if (file.size > 20 * 1024 * 1024) return { error: "That image is larger than 20MB." };
 
   try {
+    const supabase = await createClient();
+    const { data: categories } = await supabase
+      .from("cost_categories")
+      .select("id, name")
+      .order("sort_order");
+    const names = (categories ?? []).map((c) => c.name as string);
+
     const bytes = Buffer.from(await file.arrayBuffer());
-    const read = await extractBill(bytes, file.type || "image/jpeg");
+    const read = await extractBill(bytes, file.type || "image/jpeg", names);
+
+    // match the chosen name back to a row; ignoring case and spacing, since
+    // the reader copies rather than quotes
+    const key = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const chosen = read.cost_category
+      ? (categories ?? []).find((c) => key(c.name as string) === key(read.cost_category))
+      : undefined;
     return {
       fields: {
         shop: read.shop_name ?? "",
@@ -49,6 +65,7 @@ export async function readBillPhoto(_prev: unknown, fd: FormData): Promise<Extra
         total: read.total ?? 0,
         description: read.item_summary ?? "",
         expense_class: read.expense_class ?? "revenue",
+        category_id: (chosen?.id as string) ?? "",
         confidence: read.confidence ?? 0,
         notes: read.notes ?? "",
       },
@@ -93,6 +110,9 @@ export async function checkVendor(shop: string, tin: string | null): Promise<Ven
         },
       };
     }
+    // first TIN seen for a shop already on file: record it, since the GST
+    // schedule cannot be filed without one
+    if (tin && !exact.tin) await supabase.from("vendors").update({ tin }).eq("id", exact.id);
     return { vendorId: exact.id };
   }
 
@@ -107,8 +127,12 @@ export async function checkVendor(shop: string, tin: string | null): Promise<Ven
     };
   }
 
-  // nothing like it on file, so it is genuinely new — created on save
-  return { vendorId: null };
+  // nothing like it on file. Say so rather than quietly creating it: a new
+  // supplier is worth a glance, because a misread name that resembles
+  // nothing is exactly how a duplicate shop gets onto the books.
+  return {
+    confirm: { kind: "new_shop", entered_name: shop, entered_tin: tin, candidates: [] },
+  };
 }
 
 export type SaveResult = { error?: string; saved?: number };

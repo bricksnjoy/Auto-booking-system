@@ -26,6 +26,11 @@ const BillSchema = z.object({
   item_summary: z
     .string()
     .describe("Short description of what was bought, e.g. 'Cement, sand and rebar'"),
+  cost_category: z
+    .string()
+    .describe(
+      "Which cost category this bill belongs to. Copy one of the allowed names exactly, or empty string if none fits.",
+    ),
   expense_class: z
     .enum(["revenue", "capital"])
     .describe(
@@ -48,7 +53,17 @@ Extract exactly what is printed. Rules:
 - The Maldives general GST rate is 8% (it was 6% before 2023, so older bills show 6%). Read the rate printed on the bill; if only an amount is shown, infer it from amount ÷ subtotal and round to 0, 6, 8 or 12.
 - The supplier TIN is often near the shop name or in the footer, formatted like 1000000GST501.
 - Set confidence honestly: below 60 if the image is blurry, skewed, cropped or handwritten.
-- Put anything a human should double-check into notes.`;
+- Put anything a human should double-check into notes.
+- Choose cost_category from the allowed list by what was bought, not by who sold it: a hardware shop sells cement (Materials), tiles (Internal Finishes) and wiring (Mechanical & Electrical) alike. Leave it empty rather than guessing between two that fit equally.`;
+
+/** The prompt carries the categories, since they are the customer's own. */
+function systemFor(categories: string[]) {
+  return categories.length
+    ? `${SYSTEM}\n\nAllowed cost_category values, exactly as written:\n${categories
+        .map((c) => `- ${c}`)
+        .join("\n")}`
+    : SYSTEM;
+}
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
@@ -69,6 +84,7 @@ export function extractionAvailable() {
 export async function extractBill(
   fileBytes: Buffer,
   mimeType: string,
+  categories: string[] = [],
 ): Promise<ExtractedBill> {
   const which = reader();
   if (!which) {
@@ -77,11 +93,15 @@ export async function extractBill(
     );
   }
   return which === "claude"
-    ? withClaude(fileBytes, mimeType)
-    : withGemini(fileBytes, mimeType);
+    ? withClaude(fileBytes, mimeType, categories)
+    : withGemini(fileBytes, mimeType, categories);
 }
 
-async function withClaude(fileBytes: Buffer, mimeType: string): Promise<ExtractedBill> {
+async function withClaude(
+  fileBytes: Buffer,
+  mimeType: string,
+  categories: string[],
+): Promise<ExtractedBill> {
   const client = new Anthropic();
   const data = fileBytes.toString("base64");
 
@@ -105,7 +125,7 @@ async function withClaude(fileBytes: Buffer, mimeType: string): Promise<Extracte
   const response = await client.messages.parse({
     model: "claude-opus-5",
     max_tokens: 8000,
-    system: SYSTEM,
+    system: systemFor(categories),
     thinking: { type: "adaptive" },
     output_config: {
       effort: "medium",
@@ -134,7 +154,11 @@ async function withClaude(fileBytes: Buffer, mimeType: string): Promise<Extracte
  * Google's free tier the bills submitted may be used to improve their models,
  * which the paid tier and Anthropic both exclude.
  */
-async function withGemini(fileBytes: Buffer, mimeType: string): Promise<ExtractedBill> {
+async function withGemini(
+  fileBytes: Buffer,
+  mimeType: string,
+  categories: string[],
+): Promise<ExtractedBill> {
   const { GoogleGenAI } = await import("@google/genai");
   const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
@@ -177,7 +201,7 @@ async function withGemini(fileBytes: Buffer, mimeType: string): Promise<Extracte
             },
           ],
           config: {
-            systemInstruction: SYSTEM,
+            systemInstruction: systemFor(categories),
             responseMimeType: "application/json",
             responseJsonSchema: z.toJSONSchema(BillSchema),
             temperature: 0,

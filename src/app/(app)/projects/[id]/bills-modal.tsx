@@ -106,6 +106,7 @@ export function BillsModal({
     total: number;
     description: string;
     expense_class?: "revenue" | "capital";
+    category_id?: string;
     confidence: number;
     notes: string;
   }) {
@@ -121,6 +122,7 @@ export function BillsModal({
       total: f.total ? String(f.total) : d.total,
       description: f.description || d.description,
       expense_class: f.expense_class ?? d.expense_class,
+      category_id: f.category_id || d.category_id,
       confidence: f.confidence,
       notes: f.notes ?? "",
       vendor_id: null,
@@ -527,6 +529,38 @@ function VendorConfirmPanel({
   const pick =
     "rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--hover)]";
   const first = confirm.candidates[0];
+
+  // a shop that matches nothing is not a warning, it is a small piece of
+  // news, so it is worded and coloured as such
+  if (confirm.kind === "new_shop") {
+    return (
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--hover)] px-4 py-3">
+        <p className="text-sm font-medium">New shop</p>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          <span className="font-medium text-[var(--text)]">{confirm.entered_name}</span> is not
+          on your supplier list yet
+          {confirm.entered_tin ? (
+            <>
+              {" "}
+              (TIN <span className="font-mono">{confirm.entered_tin}</span>)
+            </>
+          ) : null}
+          . Check the spelling against the photo before adding it — a misread name becomes a
+          second shop in the GST schedule.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className={primary} onClick={() => onChoose(null)}>
+            Add {confirm.entered_name}
+          </button>
+          <button type="button"
+            className="px-2 py-2 text-xs text-[var(--muted)] hover:underline"
+            onClick={onCancel}>
+            Cancel, let me fix the name
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
