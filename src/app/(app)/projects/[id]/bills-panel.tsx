@@ -72,15 +72,16 @@ export function BillsPanel({
           <Table>
             <thead>
               <tr>
-                <Th>Bill</Th><Th>Shop</Th><Th>Photo</Th>
-                <Th right>Net</Th><Th right>GST</Th><Th right>Total</Th><Th right>{""}</Th>
+                <Th>Bill</Th><Th>Shop</Th><Th>Item</Th>
+                <Th right>Net</Th><Th right>GST</Th><Th right>Total</Th>
+                <Th>Photo</Th><Th right>{""}</Th>
               </tr>
             </thead>
             <tbody>
               {rows.map((b) =>
                 editing === b.id ? (
                   <tr key={b.id} className="bg-[var(--hover)]">
-                    <Td colSpan={7}>
+                    <Td colSpan={8}>
                       <form action={updateBill} className="flex flex-wrap items-end gap-2 py-1">
                         <input type="hidden" name="id" value={b.id} />
                         <input type="hidden" name="project_id" value={projectId} />
@@ -148,12 +149,13 @@ export function BillsPanel({
                           TIN {b.supplier_tin}
                         </span>
                       )}
-                      {b.description && b.description !== b.shop && (
-                        <span className="block max-w-xs truncate text-xs text-[var(--muted)]">
-                          {b.description}
-                        </span>
-                      )}
                     </Td>
+                    <Td className="max-w-xs truncate text-[var(--muted)]">
+                      {b.description && b.description !== b.shop ? b.description : "—"}
+                    </Td>
+                    <Td right>{money(b.subtotal)}</Td>
+                    <Td right className="text-[var(--muted)]">{money(b.tax_amount)}</Td>
+                    <Td right className="font-medium">{money(b.total)}</Td>
                     <Td>
                       {b.photo_url ? (
                         <button type="button" onClick={() => setLightbox(b)}
@@ -165,9 +167,6 @@ export function BillsPanel({
                         <span className="text-xs text-[var(--muted)]">—</span>
                       )}
                     </Td>
-                    <Td right>{money(b.subtotal)}</Td>
-                    <Td right className="text-[var(--muted)]">{money(b.tax_amount)}</Td>
-                    <Td right className="font-medium">{money(b.total)}</Td>
                     <Td right>
                       <button type="button" onClick={() => setEditing(b.id)}
                         className="text-xs text-[var(--muted)] hover:text-[var(--brand)] hover:underline">
@@ -185,7 +184,7 @@ export function BillsPanel({
             <tfoot>
               <tr className="bg-[var(--hover)] font-semibold">
                 <Td>EXP</Td><Td>{""}</Td><Td>{""}</Td><Td>{""}</Td><Td>{""}</Td>
-                <Td right>{money(total)}</Td><Td>{""}</Td>
+                <Td right>{money(total)}</Td><Td>{""}</Td><Td>{""}</Td>
               </tr>
             </tfoot>
           </Table>
