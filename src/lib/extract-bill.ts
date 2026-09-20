@@ -164,66 +164,77 @@ async function withGemini(
     apiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
   });
 
-  // Free-tier traffic is served last, so an overloaded model is routine rather
-  // than exceptional. Backing off and trying again clears almost all of it,
-  // and costs the person nothing but a few seconds they were already waiting.
-  const models = [
-    process.env.GEMINI_MODEL ?? "gemini-3.6-flash",
-    // an alias rather than a pinned version, so it stays valid as Google
-    // retires model names underneath us
-    process.env.GEMINI_FALLBACK_MODEL ?? "gemini-flash-lite-latest",
+  const primary = process.env.GEMINI_MODEL ?? "gemini-3.6-flash";
+  // an alias rather than a pinned version, so it stays valid as Google
+  // retires model names underneath us
+  const lite = process.env.GEMINI_FALLBACK_MODEL ?? "gemini-flash-lite-latest";
+
+  /**
+   * On the free tier the two things that go wrong are congestion and the
+   * per-minute limit, and both are cleared by asking again — the limit is
+   * counted per model, so the second name is a fresh allowance rather than
+   * merely a smaller model. Alternating between them, with a little more
+   * patience each round, gets a batch of bills through without the person
+   * being told to come back later.
+   */
+  const attempts: { model: string; wait: number }[] = [
+    { model: primary, wait: 0 },
+    { model: lite, wait: 0 },
+    { model: primary, wait: 2000 },
+    { model: lite, wait: 5000 },
   ];
 
   let res: Awaited<ReturnType<typeof ai.models.generateContent>> | null = null;
   let lastError = "Could not read a bill out of this image.";
+  const dead = new Set<string>();
 
-  outer: for (const model of models) {
-    // the fallback gets one go: by then the delay matters more than the model
-    const waits = model === models[0] ? [0, 1500, 4000] : [0];
-    for (const wait of waits) {
-      if (wait) await new Promise((r) => setTimeout(r, wait));
-      try {
-        res = await ai.models.generateContent({
-          model,
-          contents: [
-            {
-              role: "user",
-              parts: [
-                {
-                  inlineData: {
-                    mimeType:
-                      mimeType === "application/pdf" || IMAGE_TYPES.includes(mimeType)
-                        ? mimeType
-                        : "image/jpeg",
-                    data: fileBytes.toString("base64"),
-                  },
+  for (const { model, wait } of attempts) {
+    if (dead.has(model)) continue;
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try {
+      res = await ai.models.generateContent({
+        model,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType:
+                    mimeType === "application/pdf" || IMAGE_TYPES.includes(mimeType)
+                      ? mimeType
+                      : "image/jpeg",
+                  data: fileBytes.toString("base64"),
                 },
-                { text: READ_PROMPT },
-              ],
-            },
-          ],
-          config: {
-            systemInstruction: systemFor(categories),
-            responseMimeType: "application/json",
-            responseJsonSchema: z.toJSONSchema(BillSchema),
-            temperature: 0,
-            // A bill is read, not reasoned about: the fields are printed on
-            // the paper. Deliberating over it costs seconds of the wait and
-            // changes none of the answers.
-            thinkingConfig: { thinkingLevel: "MINIMAL" as never },
+              },
+              { text: READ_PROMPT },
+            ],
           },
-        });
-        break outer;
-      } catch (e) {
-        // a model name Google does not know is not this bill's problem: drop
-        // to the next one rather than reporting it, and keep the first real
-        // error so the person is told what actually went wrong
-        if (isUnknownModel(e)) break;
-        lastError = googleMessage(e);
-        // only congestion is worth waiting out; a bad key or a bad image
-        // will fail the same way however many times it is asked
-        if (!isBusy(e)) break outer;
+        ],
+        config: {
+          systemInstruction: systemFor(categories),
+          responseMimeType: "application/json",
+          responseJsonSchema: z.toJSONSchema(BillSchema),
+          temperature: 0,
+          // A bill is read, not reasoned about: the fields are printed on
+          // the paper. Deliberating over it costs seconds of the wait and
+          // changes none of the answers.
+          thinkingConfig: { thinkingLevel: "MINIMAL" as never },
+        },
+      });
+      break;
+    } catch (e) {
+      // a model name Google does not know is not this bill's problem: stop
+      // asking for it, and keep the first real error so the person is told
+      // what actually went wrong
+      if (isUnknownModel(e)) {
+        dead.add(model);
+        continue;
       }
+      lastError = googleMessage(e);
+      // a bad key or an unreadable image fails the same way however many
+      // times it is asked
+      if (!isBusy(e)) break;
     }
   }
 
@@ -264,7 +275,9 @@ function googleMessage(e: unknown): string {
 /** True when Google is merely busy, so the same request is worth repeating. */
 function isBusy(e: unknown): boolean {
   const raw = e instanceof Error ? e.message : String(e);
-  return /503|UNAVAILABLE|overloaded|high demand|try again later/i.test(raw);
+  return /503|UNAVAILABLE|overloaded|high demand|try again later|429|RESOURCE_EXHAUSTED|rate limit|quota/i.test(
+    raw,
+  );
 }
 
 /** True when Google does not recognise the model name we asked for. */

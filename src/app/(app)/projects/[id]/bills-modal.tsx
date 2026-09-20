@@ -81,6 +81,8 @@ export function BillsModal({
   const [checking, startCheck] = useTransition();
   const [notice, setNotice] = useState<string | null>(null);
   const [zoom, setZoom] = useState(false);
+  /** true when Google was unavailable and this device read the bill instead */
+  const [fellBack, setFellBack] = useState(false);
   /** photos still to be worked through, in the order they were chosen */
   const [queue, setQueue] = useState<File[]>([]);
   const [index, setIndex] = useState(0);
@@ -101,8 +103,23 @@ export function BillsModal({
 
   // fill the form from what was read off the photo
   useEffect(() => {
-    const f = readState?.fields;
-    if (f) applyRead(f);
+    if (readState?.fields) {
+      applyRead(readState.fields);
+      return;
+    }
+    // Google refused — rate limited, or busy past its retries. Rather than
+    // leave the person with an empty form and a photo they can see perfectly
+    // well, fall back to reading it on this device.
+    if (readState?.error && draft.file) {
+      void (async () => {
+        const read = await readHere(draft.readFile ?? draft.file!);
+        if (read) {
+          setNotice(null);
+          setFellBack(true);
+        }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readState]);
 
   function applyRead(f: {
@@ -175,6 +192,7 @@ export function BillsModal({
     setNotice(null);
     setZoom(false);
     setOcrPct(null);
+    setFellBack(false);
     if (!file) return;
 
     // read it straight away — the point is not to type any of this
@@ -191,18 +209,27 @@ export function BillsModal({
     // no server-side reader: run Tesseract here in the browser instead. It is
     // free and nothing leaves the device, but it only reads what is printed,
     // so more of it needs checking.
+    void readHere(file);
+  }
+
+  /**
+   * Read on this device. Slower and blunter than the server, but it has no
+   * quota, so it is what stands between a rate-limited batch and typing
+   * eleven bills in by hand.
+   */
+  async function readHere(file: File) {
     setOcrPct(0);
-    void (async () => {
-      try {
-        const { readWithTesseract } = await import("@/lib/ocr-bill");
-        const f = await readWithTesseract(file, setOcrPct);
-        applyRead(f);
-      } catch {
-        setNotice("Could not read that photo here. Enter the bill by hand.");
-      } finally {
-        setOcrPct(null);
-      }
-    })();
+    try {
+      const { readWithTesseract } = await import("@/lib/ocr-bill");
+      const f = await readWithTesseract(file, setOcrPct);
+      applyRead(f);
+      return true;
+    } catch {
+      setNotice("Could not read that photo here. Enter the bill by hand.");
+      return false;
+    } finally {
+      setOcrPct(null);
+    }
   }
 
   /** A whole batch can be chosen at once; they are queued, not merged. */
@@ -378,9 +405,15 @@ export function BillsModal({
 
           {/* everything read off it, editable */}
           <div className="space-y-4">
-          {readState?.error && (
+          {readState?.error && !fellBack && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
               {readState.error}
+            </p>
+          )}
+          {fellBack && (
+            <p className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--muted)]">
+              Google was unavailable, so this bill was read on your device instead — check
+              every field against the photo.
             </p>
           )}
           {lowConfidence && (
