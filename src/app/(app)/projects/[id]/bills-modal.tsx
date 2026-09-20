@@ -74,6 +74,8 @@ export function BillsModal({
   const [checking, startCheck] = useTransition();
   const [notice, setNotice] = useState<string | null>(null);
   const [zoom, setZoom] = useState(false);
+  /** progress of the on-device read, when there is no server-side reader */
+  const [ocrPct, setOcrPct] = useState<number | null>(null);
 
   const [readState, readAction, reading] = useActionState(
     readBillPhoto,
@@ -90,7 +92,23 @@ export function BillsModal({
   // fill the form from what was read off the photo
   useEffect(() => {
     const f = readState?.fields;
-    if (!f) return;
+    if (f) applyRead(f);
+  }, [readState]);
+
+  function applyRead(f: {
+    shop: string;
+    supplier_tin: string;
+    bill_no: string;
+    issue_date: string;
+    subtotal: number;
+    gst_rate: number;
+    tax_amount: number;
+    total: number;
+    description: string;
+    expense_class?: "revenue" | "capital";
+    confidence: number;
+    notes: string;
+  }) {
     setDraft((d) => ({
       ...d,
       shop: f.shop || d.shop,
@@ -107,7 +125,7 @@ export function BillsModal({
       notes: f.notes ?? "",
       vendor_id: null,
     }));
-  }, [readState]);
+  }
 
   // once everything saves, hand back to the page
   useEffect(() => {
@@ -143,10 +161,30 @@ export function BillsModal({
     }));
     setNotice(null);
     setZoom(false);
+    setOcrPct(null);
+    if (!file) return;
+
     // read it straight away — the point is not to type any of this
-    if (file && autoReadOn) {
+    if (autoReadOn) {
       requestAnimationFrame(() => readFormRef.current?.requestSubmit());
+      return;
     }
+
+    // no server-side reader: run Tesseract here in the browser instead. It is
+    // free and nothing leaves the device, but it only reads what is printed,
+    // so more of it needs checking.
+    setOcrPct(0);
+    void (async () => {
+      try {
+        const { readWithTesseract } = await import("@/lib/ocr-bill");
+        const f = await readWithTesseract(file, setOcrPct);
+        applyRead(f);
+      } catch {
+        setNotice("Could not read that photo here. Enter the bill by hand.");
+      } finally {
+        setOcrPct(null);
+      }
+    })();
   }
 
   function stage(vendorId: string | null) {
@@ -167,6 +205,9 @@ export function BillsModal({
     });
   }
 
+  const busy = reading || ocrPct !== null;
+  const readingLabel =
+    ocrPct !== null ? `Reading the bill… ${ocrPct}%` : "Reading the bill…";
   const stagedTotal = staged.reduce((s, b) => s + num(b.total), 0);
   const lowConfidence = draft.confidence !== null && draft.confidence < 60;
 
@@ -183,7 +224,7 @@ export function BillsModal({
             <p className="text-xs text-[var(--muted)]">
               {autoReadOn
                 ? "Photograph a bill and the fields fill themselves — correct anything wrong"
-                : "Auto-reading is off, so enter the details by hand"}
+                : "Photograph a bill and it is read on this device — check every field"}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close"
@@ -224,7 +265,7 @@ export function BillsModal({
                     View full size
                   </button>
                   <label htmlFor="bill-photo" className="cursor-pointer text-[var(--muted)] hover:text-[var(--text)]">
-                    {reading ? "Reading the bill…" : "Replace photo"}
+                    {busy ? readingLabel : "Replace photo"}
                   </label>
                 </div>
               </>
@@ -237,7 +278,7 @@ export function BillsModal({
                   <circle cx="12" cy="12.5" r="3.5" />
                 </svg>
                 <span className="text-sm font-medium">
-                  {reading ? "Reading the bill…" : "Take a photo of the bill"}
+                  {busy ? readingLabel : "Take a photo of the bill"}
                 </span>
                 <span className="text-xs text-[var(--muted)]">
                   Opens the camera on a phone, or pick a file
@@ -355,7 +396,7 @@ export function BillsModal({
             <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{notice}</p>
           )}
 
-          <button type="button" onClick={addToList} disabled={checking || reading}
+          <button type="button" onClick={addToList} disabled={checking || busy}
             className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)] disabled:opacity-50">
             {checking ? "Checking shop…" : "+ Add to list"}
           </button>
