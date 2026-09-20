@@ -207,6 +207,10 @@ async function withGemini(
             responseMimeType: "application/json",
             responseJsonSchema: z.toJSONSchema(BillSchema),
             temperature: 0,
+            // A bill is read, not reasoned about: the fields are printed on
+            // the paper. Deliberating over it costs seconds of the wait and
+            // changes none of the answers.
+            thinkingConfig: { thinkingLevel: "MINIMAL" as never },
           },
         });
         break outer;

@@ -3,12 +3,16 @@
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { money, num } from "@/lib/format";
 import { readBillPhoto, checkVendor, saveBills } from "@/app/actions/bill-intake";
+import { shrinkForReading } from "@/lib/shrink-photo";
 import type { ExtractResult, SaveResult } from "@/app/actions/bill-intake";
 import type { VendorConfirm } from "@/app/actions/project-items";
 
 interface Draft {
   key: string;
+  /** the original, kept for the record */
   file: File | null;
+  /** a shrunken copy, which is all the reader needs */
+  readFile: File | null;
   previewUrl: string | null;
   shop: string;
   supplier_tin: string;
@@ -31,6 +35,7 @@ interface Draft {
 const blank = (activityNo: string): Draft => ({
   key: crypto.randomUUID(),
   file: null,
+  readFile: null,
   previewUrl: null,
   shop: "",
   supplier_tin: "",
@@ -163,6 +168,7 @@ export function BillsModal({
     setDraft({
       ...blank(defaultActivityNo),
       file,
+      readFile: null,
       previewUrl: file ? URL.createObjectURL(file) : null,
     });
     setConfirm(null);
@@ -173,7 +179,12 @@ export function BillsModal({
 
     // read it straight away — the point is not to type any of this
     if (autoReadOn) {
-      requestAnimationFrame(() => readFormRef.current?.requestSubmit());
+      setOcrPct(null);
+      void (async () => {
+        const small = await shrinkForReading(file);
+        setDraft((d) => (d.file === file ? { ...d, readFile: small } : d));
+        requestAnimationFrame(() => readFormRef.current?.requestSubmit());
+      })();
       return;
     }
 
@@ -287,9 +298,10 @@ export function BillsModal({
         {/* hidden form that posts just the photo for reading */}
         <form ref={readFormRef} action={readAction} className="hidden">
           <input type="file" name="photo" ref={(el) => {
-            if (el && draft.file) {
+            const f = draft.readFile ?? draft.file;
+            if (el && f) {
               const dt = new DataTransfer();
-              dt.items.add(draft.file);
+              dt.items.add(f);
               el.files = dt.files;
             }
           }} />
