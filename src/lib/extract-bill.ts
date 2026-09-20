@@ -140,32 +140,37 @@ async function withGemini(fileBytes: Buffer, mimeType: string): Promise<Extracte
     apiKey: process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY,
   });
 
-  const res = await ai.models.generateContent({
-    model: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
-    contents: [
-      {
-        role: "user",
-        parts: [
+  const res = await ai.models
+    .generateContent({
+        model: process.env.GEMINI_MODEL ?? "gemini-3.6-flash",
+        contents: [
           {
-            inlineData: {
-              mimeType:
-                mimeType === "application/pdf" || IMAGE_TYPES.includes(mimeType)
-                  ? mimeType
-                  : "image/jpeg",
-              data: fileBytes.toString("base64"),
-            },
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType:
+                    mimeType === "application/pdf" || IMAGE_TYPES.includes(mimeType)
+                      ? mimeType
+                      : "image/jpeg",
+                  data: fileBytes.toString("base64"),
+                },
+              },
+              { text: READ_PROMPT },
+            ],
           },
-          { text: READ_PROMPT },
         ],
-      },
-    ],
-    config: {
-      systemInstruction: SYSTEM,
-      responseMimeType: "application/json",
-      responseJsonSchema: z.toJSONSchema(BillSchema),
-      temperature: 0,
-    },
-  });
+        config: {
+          systemInstruction: SYSTEM,
+          responseMimeType: "application/json",
+          responseJsonSchema: z.toJSONSchema(BillSchema),
+          temperature: 0,
+        },
+      })
+    // Google's errors arrive as a JSON blob, which is no use on screen
+    .catch((e: unknown) => {
+      throw new Error(googleMessage(e));
+    });
 
   const text = res.text;
   if (!text) throw new Error("Could not read a bill out of this image.");
@@ -180,4 +185,18 @@ async function withGemini(fileBytes: Buffer, mimeType: string): Promise<Extracte
   const parsed = BillSchema.safeParse(json);
   if (!parsed.success) throw new Error("Could not read a bill out of this image.");
   return parsed.data;
+}
+
+/** Pull the human-readable part out of a Google API error. */
+function googleMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const match = raw.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  const msg = match ? match[1].replace(/\\"/g, '"') : raw;
+  if (/quota|rate limit|RESOURCE_EXHAUSTED/i.test(msg)) {
+    return "Google's free tier is rate limited — wait a moment and read this bill again.";
+  }
+  if (/API key|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)) {
+    return "The Gemini key was rejected. Check GEMINI_API_KEY in Vercel.";
+  }
+  return msg.slice(0, 300);
 }
