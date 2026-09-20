@@ -207,9 +207,7 @@ export default async function ProjectDetailPage({
                 return (
                   <div key={r.id} className="px-5 py-4">
                     <div className="flex items-center justify-between gap-3">
-                      <Link href={`/funding/${r.id}`} className="text-sm font-medium hover:underline">
-                        {r.name}
-                      </Link>
+                      <span className="text-sm font-medium">{r.name}</span>
                       <Badge value={r.status} />
                     </div>
                     <p className="mt-1 text-xs text-[var(--muted)]">
@@ -331,9 +329,7 @@ export default async function ProjectDetailPage({
                 {invoices.map((i) => (
                   <tr key={i.id}>
                     <Td>
-                      <Link href={`/invoices/${i.id}`} className="font-mono text-xs hover:underline">
-                        {i.invoice_no}
-                      </Link>
+                      <span className="font-mono text-xs">{i.invoice_no}</span>
                       <span className="block text-xs text-[var(--muted)]">due {date(i.due_date)}</span>
                     </Td>
                     <Td><Badge value={i.status} /></Td>

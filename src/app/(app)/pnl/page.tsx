@@ -188,11 +188,7 @@ export default async function PnlPage() {
                 const total = investorTotalOf(i.id);
                 return (
                   <tr key={i.id}>
-                    <Td>
-                      <Link href={`/investors/${i.id}`} className="font-medium hover:underline">
-                        {i.name}
-                      </Link>
-                    </Td>
+                    <Td className="font-medium">{i.name}</Td>
                     <Td right>{money(total)}</Td>
                     <Td right className="text-[var(--muted)]">
                       {t.profit > 0 ? pct((total / t.profit) * 100, 1) : "—"}

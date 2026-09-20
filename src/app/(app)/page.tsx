@@ -168,9 +168,7 @@ export default async function DashboardPage() {
                   return (
                     <li key={r.id} className="flex items-center justify-between px-5 py-3">
                       <div className="min-w-0">
-                        <Link href={`/funding/${r.id}`} className="text-sm font-medium hover:underline">
-                          {r.name}
-                        </Link>
+                        <span className="text-sm font-medium">{r.name}</span>
                         <p className="truncate text-xs text-[var(--muted)]">
                           {proj?.code} · {proj?.name}
                         </p>
