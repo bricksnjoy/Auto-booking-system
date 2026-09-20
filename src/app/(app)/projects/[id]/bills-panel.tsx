@@ -34,6 +34,7 @@ export function BillsPanel({
   categories,
   defaultActivityNo,
   autoReadOn,
+  gstRegistered,
 }: {
   projectId: string;
   rows: BillRow[];
@@ -42,6 +43,8 @@ export function BillsPanel({
   defaultActivityNo?: string | null;
   /** whether the server can read bills off their photos */
   autoReadOn: boolean;
+  /** an activity number only means something once GST is registered */
+  gstRegistered: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [lightbox, setLightbox] = useState<BillRow | null>(null);
@@ -216,6 +219,7 @@ export function BillsPanel({
         categories={categories}
         defaultActivityNo={defaultActivityNo ?? ""}
         autoReadOn={autoReadOn}
+        gstRegistered={gstRegistered}
       />
     </>
   );

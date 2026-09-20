@@ -15,6 +15,20 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getUser();
   if (!user) return new NextResponse("Not signed in", { status: 401 });
 
+  // a schedule downloaded before registration would read as a claim that
+  // cannot be made, so an old link does not quietly produce one
+  const { data: company } = await supabase
+    .from("company")
+    .select("gst_registered")
+    .eq("id", true)
+    .maybeSingle();
+  if (!company?.gst_registered) {
+    return new NextResponse(
+      "Spruce & Co is not registered for GST, so there is no input schedule to file.",
+      { status: 409 },
+    );
+  }
+
   const periodKey = request.nextUrl.searchParams.get("period") ?? "all";
   const quarter = periodKey === "all" ? null : parseQuarter(periodKey);
 

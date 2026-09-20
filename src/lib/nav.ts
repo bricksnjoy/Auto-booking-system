@@ -54,11 +54,25 @@ export const QUICK_ACTIONS: NavItem[] = [];
 
 const navHrefs = new Set(NAV.flatMap((g) => g.items.map((i) => i.href)));
 
-export function visibleFor(role: UserRole | undefined): NavGroup[] {
+/**
+ * Routes that only make sense once the company is registered for GST. Input
+ * tax cannot be claimed before then, so a filing screen would be inviting a
+ * claim that does not exist.
+ */
+const GST_ONLY = new Set(["/gst"]);
+
+export function visibleFor(
+  role: UserRole | undefined,
+  opts: { gstRegistered?: boolean } = {},
+): NavGroup[] {
   const r = role ?? "viewer";
   return NAV.map((g) => ({
     ...g,
-    items: g.items.filter((i) => !i.roles || i.roles.includes(r)),
+    items: g.items.filter(
+      (i) =>
+        (!i.roles || i.roles.includes(r)) &&
+        (opts.gstRegistered !== false || !GST_ONLY.has(i.href)),
+    ),
   })).filter((g) => g.items.length > 0);
 }
 

@@ -57,7 +57,7 @@ export default async function ProjectDetailPage({
     supabase.from("project_investor_splits").select("*").eq("project_id", id),
     supabase.from("variations").select("*").eq("project_id", id).order("raised_date"),
     supabase.from("cost_categories").select("id, name").order("sort_order"),
-    supabase.from("company").select("taxable_activity_no").eq("id", true).maybeSingle(),
+    supabase.from("company").select("taxable_activity_no, gst_registered").eq("id", true).maybeSingle(),
   ]);
 
   // sign the stored bill photos so they can be shown without making the
@@ -277,6 +277,7 @@ export default async function ProjectDetailPage({
               null
             }
             autoReadOn={extractionAvailable()}
+            gstRegistered={company?.gst_registered ?? false}
           />
         </div>
 

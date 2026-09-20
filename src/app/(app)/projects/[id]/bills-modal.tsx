@@ -60,6 +60,7 @@ export function BillsModal({
   categories,
   defaultActivityNo,
   autoReadOn,
+  gstRegistered,
 }: {
   open: boolean;
   onClose: () => void;
@@ -67,6 +68,7 @@ export function BillsModal({
   categories: { id: string; name: string }[];
   defaultActivityNo: string;
   autoReadOn: boolean;
+  gstRegistered: boolean;
 }) {
   const [draft, setDraft] = useState<Draft>(() => blank(defaultActivityNo));
   const [staged, setStaged] = useState<Draft[]>([]);
@@ -362,7 +364,7 @@ export function BillsModal({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className={`grid gap-3 ${gstRegistered ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
             <div>
               <label className={tiny}>Invoice number</label>
               <input value={draft.bill_no} onChange={(e) => set("bill_no", e.target.value)}
@@ -375,11 +377,14 @@ export function BillsModal({
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className={tiny}>Taxable activity no.</label>
-              <input value={draft.taxable_activity_no}
-                onChange={(e) => set("taxable_activity_no", e.target.value)} className={input} />
-            </div>
+            {/* meaningless until MIRA issues one, so it is not asked for */}
+            {gstRegistered && (
+              <div>
+                <label className={tiny}>Taxable activity no.</label>
+                <input value={draft.taxable_activity_no}
+                  onChange={(e) => set("taxable_activity_no", e.target.value)} className={input} />
+              </div>
+            )}
             <div>
               <label className={tiny}>Revenue / capital</label>
               <select value={draft.expense_class}

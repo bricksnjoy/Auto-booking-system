@@ -18,14 +18,19 @@ export default async function AppLayout({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, email, role, job_title")
-    .eq("id", user.id)
-    .single();
+  const [{ data: profile }, { data: company }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("full_name, email, role, job_title")
+      .eq("id", user.id)
+      .single(),
+    supabase.from("company").select("gst_registered").eq("id", true).maybeSingle(),
+  ]);
 
   const name = profile?.full_name || user.email || "User";
-  const groups = visibleFor(profile?.role);
+  const groups = visibleFor(profile?.role, {
+    gstRegistered: company?.gst_registered ?? false,
+  });
   const quickActions = quickActionsFor(profile?.role);
 
   return (
