@@ -74,7 +74,7 @@ export function BillsPanel({
               <tr>
                 <Th>Bill</Th><Th>Shop</Th><Th>Item</Th>
                 <Th right>Net</Th><Th right>GST</Th><Th right>Total</Th>
-                <Th>Photo</Th><Th right>{""}</Th>
+                <Th className="w-20 pl-10">Photo</Th><Th right>{""}</Th>
               </tr>
             </thead>
             <tbody>
@@ -156,7 +156,7 @@ export function BillsPanel({
                     <Td right>{money(b.subtotal)}</Td>
                     <Td right className="text-[var(--muted)]">{money(b.tax_amount)}</Td>
                     <Td right className="font-medium">{money(b.total)}</Td>
-                    <Td>
+                    <Td className="w-20 pl-10">
                       {b.photo_url ? (
                         <button type="button" onClick={() => setLightbox(b)}
                           className="block h-10 w-10 overflow-hidden rounded border border-[var(--border)]">

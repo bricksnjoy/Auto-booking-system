@@ -156,15 +156,17 @@ export function Table({ children }: { children: ReactNode }) {
 export function Th({
   children,
   right = false,
+  className = "",
 }: {
   children: ReactNode;
   right?: boolean;
+  className?: string;
 }) {
   return (
     <th
       className={`border-b border-[var(--border)] px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-[var(--muted)] ${
         right ? "text-right" : "text-left"
-      }`}
+      } ${className}`}
     >
       {children}
     </th>
