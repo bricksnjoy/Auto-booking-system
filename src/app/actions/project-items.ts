@@ -60,29 +60,33 @@ export async function addVariation(_prev: unknown, fd: FormData): Promise<Result
   return { ok: true };
 }
 
-/** Used directly as a form action, so it takes FormData alone. */
-export async function updateVariation(fd: FormData): Promise<void> {
+/** Reports its result, so a modal knows when to close. */
+export async function updateVariation(_prev: unknown, fd: FormData): Promise<Result> {
   const supabase = await createClient();
   const id = String(fd.get("id") ?? "");
   const projectId = String(fd.get("project_id") ?? "");
-  if (!id) return;
+  if (!id) return { error: "Missing variation." };
 
   const description = text(fd, "description");
+  if (!description) return { error: "Describe the variation." };
+
   const { error } = await supabase
     .from("variations")
     .update({
       description,
-      title: (description ?? "Variation").slice(0, 120),
+      title: description.slice(0, 120),
       cost_impact: number(fd, "cost_impact"),
       time_impact_days: int(fd, "time_impact_days"),
       raised_date: text(fd, "raised_date"),
     })
     .eq("id", id);
 
-  if (error) return;
+  if (error) return { error: error.message };
+
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/pnl");
   revalidatePath("/projects");
+  return { ok: true };
 }
 
 export async function deleteVariation(id: string, projectId: string) {
@@ -282,7 +286,7 @@ export async function addBill(_prev: unknown, fd: FormData): Promise<BillResult>
   return { ok: true };
 }
 
-/** Used directly as a form action, so it takes FormData alone. */
+/** Reports its result, so a modal knows when to close. */
 export async function updateBill(fd: FormData): Promise<void> {
   const supabase = await createClient();
   const id = String(fd.get("id") ?? "");
