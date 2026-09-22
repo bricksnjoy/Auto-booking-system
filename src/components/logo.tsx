@@ -60,7 +60,7 @@ export function Wordmark({
   }[size];
 
   return (
-    <span className="flex flex-col items-center whitespace-nowrap leading-none">
+    <span className="flex flex-col items-center leading-none">
       <span
         className={`font-display font-bold ${scale.name} ${
           onDark ? "text-white" : "text-[var(--brand)]"
