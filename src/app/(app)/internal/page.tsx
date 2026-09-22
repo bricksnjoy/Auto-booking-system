@@ -15,13 +15,14 @@ interface Entry {
   amount: number;
   entry_date: string;
   source: "completed" | "payment_received" | "manual";
+  disposition: "withdraw" | "retain";
   note: string | null;
   projects: { id: string; name: string; code: string } | null;
 }
 
 export default async function InternalAccountPage() {
   const supabase = await createClient();
-  const [{ data: entryData }, { data: awaiting }] = await Promise.all([
+  const [{ data: entryData }, { data: awaiting }, { data: capitalRows }] = await Promise.all([
     supabase
       .from("internal_account_entries")
       .select("*, projects(id, name, code)")
@@ -32,6 +33,10 @@ export default async function InternalAccountPage() {
       .select("id, name, code, completed_at, payment_received_at")
       .not("completed_at", "is", null)
       .is("payment_received_at", null),
+    supabase
+      .from("project_financing_sources")
+      .select("amount")
+      .eq("source_type", "capital_pool"),
   ]);
 
   const entries = (entryData ?? []) as unknown as Entry[];
@@ -54,6 +59,20 @@ export default async function InternalAccountPage() {
     byShare.set(e.share_name, row);
   }
   const shares = [...byShare].sort((a, b) => b[1].balance - a[1].balance);
+
+  // Company capital: the profit kept in the business — the company's own share,
+  // plus any director who chose to keep theirs — less what has gone back into
+  // projects. Shown broken down so each source of capital is visible.
+  const kept = new Map<string, number>();
+  for (const e of entries) {
+    if (e.entry_type === "accrual" && e.disposition === "retain") {
+      kept.set(e.share_name, num(kept.get(e.share_name)) + num(e.amount));
+    }
+  }
+  const keptRows = [...kept].sort((a, b) => b[1] - a[1]);
+  const keptTotal = keptRows.reduce((s, [, v]) => s + v, 0);
+  const reinvested = (capitalRows ?? []).reduce((s, r) => s + num(r.amount), 0);
+  const availableCapital = Math.round((keptTotal - reinvested) * 100) / 100;
 
   const oldest = awaiting?.reduce<string | null>(
     (o, p) => (!o || (p.completed_at && p.completed_at < o) ? p.completed_at : o),
@@ -168,6 +187,42 @@ export default async function InternalAccountPage() {
           )}
         </Card>
       </div>
+
+      <Card className="mb-6">
+        <CardHeader
+          title="Company capital"
+          subtitle="Profit kept in the business, and what is free to reinvest"
+        />
+        {keptRows.length === 0 ? (
+          <Empty message="No profit kept yet. The company's share and any director who keeps theirs will show here." />
+        ) : (
+          <Table>
+            <thead>
+              <tr><Th>Kept by</Th><Th right>Amount</Th></tr>
+            </thead>
+            <tbody>
+              {keptRows.map(([name, amount]) => (
+                <tr key={name} className="hover:bg-[var(--hover)]">
+                  <Td className="font-medium">{name}</Td>
+                  <Td right>{money(amount)}</Td>
+                </tr>
+              ))}
+              <tr>
+                <Td className="text-[var(--muted)]">Less reinvested into projects</Td>
+                <Td right className="text-[var(--muted)]">{reinvested ? `(${money(reinvested)})` : money(0)}</Td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr className="bg-[var(--hover)] font-semibold">
+                <Td>Available to reinvest</Td>
+                <Td right className={availableCapital > 0 ? "text-emerald-700" : ""}>
+                  {money(availableCapital)}
+                </Td>
+              </tr>
+            </tfoot>
+          </Table>
+        )}
+      </Card>
 
       <Card>
         <CardHeader title="Ledger" subtitle="Every accrual and settlement, newest first" />

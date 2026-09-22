@@ -11,6 +11,7 @@ import { StatusBar } from "./status-bar";
 import { VariationsPanel } from "./variations-panel";
 import { BillsPanel } from "./bills-panel";
 import { InvestmentsPanel, type InvestmentRow } from "./investments-panel";
+import { ProfitShareCard, type ShareLine } from "./profit-share-card";
 
 export const dynamic = "force-dynamic";
 // bill reading waits on Google, and retries when it is busy
@@ -48,6 +49,7 @@ export default async function ProjectDetailPage({
     { data: directory },
     { data: retainedRows },
     { data: capitalRows },
+    { data: dispositions },
   ] = await Promise.all([
     supabase.from("projects").select("*, clients(name)").eq("id", id).single(),
     supabase.from("project_phases").select("*").eq("project_id", id).order("sort_order"),
@@ -80,12 +82,17 @@ export default async function ProjectDetailPage({
     supabase
       .from("internal_account_entries")
       .select("amount")
-      .eq("share_kind", "company")
-      .eq("entry_type", "accrual"),
+      .eq("entry_type", "accrual")
+      .eq("disposition", "retain"),
     supabase
       .from("project_financing_sources")
       .select("amount")
       .eq("source_type", "capital_pool"),
+    supabase
+      .from("internal_account_entries")
+      .select("share_name, disposition")
+      .eq("project_id", id)
+      .eq("entry_type", "accrual"),
   ]);
 
   const investmentRows: InvestmentRow[] = (financingSources ?? []).map((s) => ({
@@ -96,6 +103,7 @@ export default async function ProjectDetailPage({
     amount: num(s.amount),
     funded_on: s.funded_on ?? null,
   }));
+  // company share plus any director who chose to keep theirs
   const retainedTotal = (retainedRows ?? []).reduce((a, r) => a + num(r.amount), 0);
   const capitalDeployed = (capitalRows ?? []).reduce((a, r) => a + num(r.amount), 0);
   const availableCapital = Math.round((retainedTotal - capitalDeployed) * 100) / 100;
@@ -138,13 +146,18 @@ export default async function ProjectDetailPage({
     raised_date: v.raised_date,
   }));
 
-  type Share = {
-    share_name: string;
-    share_kind: "investors" | "company" | "person";
-    pct: number;
-    share_amount: number;
-  };
-  const shares = (splits ?? []) as Share[];
+  const dispByShare = new Map<string, "withdraw" | "retain">();
+  for (const d of dispositions ?? []) {
+    dispByShare.set(d.share_name as string, (d.disposition as "withdraw" | "retain") ?? "withdraw");
+  }
+  const completed = Boolean(project.completed_at);
+  const shares: ShareLine[] = (splits ?? []).map((s) => ({
+    share_name: s.share_name,
+    share_kind: s.share_kind,
+    pct: num(s.pct),
+    share_amount: num(s.share_amount),
+    disposition: completed ? dispByShare.get(s.share_name) ?? "withdraw" : null,
+  }));
 
   // budget vs actual, by cost category
   const byCat = new Map<string, { budget: number; actual: number }>();
@@ -248,44 +261,7 @@ export default async function ProjectDetailPage({
           )}
         </Card>
 
-        <Card>
-          <CardHeader
-            title="Profit share"
-            subtitle="How this project's profit divides"
-          />
-          {shares.length === 0 ? (
-            <Empty message="No profit share set. Add one under Admin." />
-          ) : (
-            <Table>
-              <thead>
-                <tr><Th>Share</Th><Th right>%</Th><Th right>Amount</Th></tr>
-              </thead>
-              <tbody>
-                {shares.map((s) => (
-                  <tr key={`${s.share_name}-${s.pct}`}>
-                    <Td className="font-medium">
-                      {s.share_name}
-                      {s.share_kind === "company" && (
-                        <span className="ml-2 rounded-full bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] font-normal text-[var(--brand)]">
-                          retained
-                        </span>
-                      )}
-                    </Td>
-                    <Td right className="text-[var(--muted)]">{num(s.pct).toFixed(2)}%</Td>
-                    <Td right>{money(s.share_amount)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-[var(--hover)] font-semibold">
-                  <Td>Total</Td>
-                  <Td right>{shares.reduce((a, s) => a + num(s.pct), 0).toFixed(2)}%</Td>
-                  <Td right>{money(shares.reduce((a, s) => a + num(s.share_amount), 0))}</Td>
-                </tr>
-              </tfoot>
-            </Table>
-          )}
-        </Card>
+        <ProfitShareCard projectId={id} shares={shares} completed={completed} />
 
         <Card>
           <CardHeader title="Programme" subtitle="Phases and progress" />

@@ -59,6 +59,8 @@ export async function markCompleted(_prev: unknown, fd: FormData): Promise<Statu
       amount: s.share_amount as number,
       entry_date: on,
       source: "completed" as const,
+      // the company's own share is capital by nature; people choose later
+      disposition: (s.share_kind as string) === "company" ? "retain" : "withdraw",
       note: "Share of profit on completion",
       created_by: user.id,
     }));
@@ -185,5 +187,33 @@ export async function unmarkPaymentReceived(_prev: unknown, fd: FormData): Promi
   if (error) return { error: error.message };
 
   refresh(projectId);
+  return { ok: true };
+}
+
+/**
+ * A director elects to take their share of this project's profit, or keep it in
+ * the company as capital. Applied to the accrual raised on completion, so it
+ * only makes sense once the work is done.
+ */
+export async function setShareDisposition(_prev: unknown, fd: FormData): Promise<StatusResult> {
+  const supabase = await createClient();
+  const projectId = String(fd.get("project_id") ?? "");
+  const shareName = String(fd.get("share_name") ?? "");
+  const disposition = String(fd.get("disposition") ?? "");
+  if (!projectId || !shareName) return { error: "Missing share." };
+  if (disposition !== "withdraw" && disposition !== "retain") {
+    return { error: "Choose take or keep." };
+  }
+
+  const { error } = await supabase
+    .from("internal_account_entries")
+    .update({ disposition })
+    .eq("project_id", projectId)
+    .eq("share_name", shareName)
+    .eq("entry_type", "accrual");
+  if (error) return { error: error.message };
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/internal");
   return { ok: true };
 }
