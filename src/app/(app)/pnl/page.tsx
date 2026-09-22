@@ -20,19 +20,18 @@ interface Pnl {
 
 interface Split {
   project_id: string;
-  investor_id: string;
-  investor_name: string;
-  share_mode: "percentage" | "fixed";
-  profit_share_pct: number | null;
-  profit_share_amount: number | null;
-  investor_profit: number;
+  share_name: string;
+  share_kind: "investors" | "company" | "person";
+  pct: number;
+  sort_order: number;
+  share_amount: number;
 }
 
 export default async function PnlPage() {
   const supabase = await createClient();
   const [{ data: pnlData }, { data: splitData }, { data: company }] = await Promise.all([
     supabase.from("project_pnl").select("*").order("code"),
-    supabase.from("project_investor_splits").select("*"),
+    supabase.from("project_profit_split").select("*").order("sort_order"),
     supabase.from("company").select("gst_registered").eq("id", true).maybeSingle(),
   ]);
 
@@ -44,22 +43,23 @@ export default async function PnlPage() {
   const rows = (pnlData ?? []) as Pnl[];
   const splits = (splitData ?? []) as Split[];
 
-  // investor columns, ordered by total share across all projects (largest first)
-  const investorTotals = new Map<string, { name: string; total: number }>();
+  // one column per share, in the order the scheme lists them
+  const shareOrder = new Map<string, { kind: Split["share_kind"]; sort: number; total: number }>();
   for (const s of splits) {
-    const e = investorTotals.get(s.investor_id) ?? { name: s.investor_name, total: 0 };
-    e.total += num(s.investor_profit);
-    investorTotals.set(s.investor_id, e);
+    const e = shareOrder.get(s.share_name) ?? { kind: s.share_kind, sort: s.sort_order, total: 0 };
+    e.total += num(s.share_amount);
+    e.sort = Math.min(e.sort, s.sort_order);
+    shareOrder.set(s.share_name, e);
   }
-  const investors = [...investorTotals.entries()]
-    .sort((a, b) => b[1].total - a[1].total)
-    .map(([id, v]) => ({ id, name: v.name }));
+  const shares = [...shareOrder.entries()]
+    .sort((a, b) => a[1].sort - b[1].sort || b[1].total - a[1].total)
+    .map(([name, v]) => ({ name, kind: v.kind }));
 
-  // project -> investor -> split
+  // project -> share name -> split
   const byProject = new Map<string, Map<string, Split>>();
   for (const s of splits) {
     if (!byProject.has(s.project_id)) byProject.set(s.project_id, new Map());
-    byProject.get(s.project_id)!.set(s.investor_id, s);
+    byProject.get(s.project_id)!.set(s.share_name, s);
   }
 
   const t = {
@@ -69,15 +69,15 @@ export default async function PnlPage() {
     exp: rows.reduce((a, r) => a + num(r.exp), 0),
     profit: rows.reduce((a, r) => a + num(r.profit), 0),
   };
-  const investorTotalOf = (id: string) =>
-    rows.reduce((a, r) => a + num(byProject.get(r.id)?.get(id)?.investor_profit), 0);
-  const distributed = investors.reduce((a, i) => a + investorTotalOf(i.id), 0);
-  const retained = t.profit - distributed;
-
-  const shareLabel = (s: Split | undefined) => {
-    if (!s) return null;
-    return s.share_mode === "fixed" ? "fixed" : `${num(s.profit_share_pct).toFixed(0)}%`;
-  };
+  const shareTotalOf = (name: string) =>
+    rows.reduce((a, r) => a + num(byProject.get(r.id)?.get(name)?.share_amount), 0);
+  // the company's own portion is not paid out, so it is shown apart
+  const retainedTotal = shares
+    .filter((s) => s.kind === "company")
+    .reduce((a, s) => a + shareTotalOf(s.name), 0);
+  const paidOut = shares
+    .filter((s) => s.kind !== "company")
+    .reduce((a, s) => a + shareTotalOf(s.name), 0);
 
   return (
     <div>
@@ -100,9 +100,9 @@ export default async function PnlPage() {
         <Stat label="Expenditure" value={money(t.exp)} tone="bad" />
         <Stat label="Profit" value={money(t.profit)} tone={t.profit >= 0 ? "good" : "bad"} />
         <Stat
-          label="Distributed to investors"
-          value={money(distributed)}
-          hint={Math.abs(retained) < 1 ? "Fully distributed" : `${money(retained)} retained`}
+          label="Retained"
+          value={money(retainedTotal)}
+          hint={`${money(paidOut)} shared out`}
         />
       </div>
 
@@ -127,8 +127,8 @@ export default async function PnlPage() {
                 {showGst && <Th right>GST</Th>}
                 <Th right>EXP</Th>
                 <Th right>Profit</Th>
-                {investors.map((i) => (
-                  <Th key={i.id} right>{i.name}</Th>
+                {shares.map((sh) => (
+                  <Th key={sh.name} right>{sh.name}</Th>
                 ))}
               </tr>
             </thead>
@@ -158,14 +158,16 @@ export default async function PnlPage() {
                     <Td right className={`font-medium ${profit >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                       {money(profit)}
                     </Td>
-                    {investors.map((i) => {
-                      const s = mine?.get(i.id);
+                    {shares.map((sh) => {
+                      const s = mine?.get(sh.name);
                       return (
-                        <Td key={i.id} right>
+                        <Td key={sh.name} right>
                           {s ? (
                             <>
-                              {money(s.investor_profit)}
-                              <span className="block text-[10px] text-[var(--muted)]">{shareLabel(s)}</span>
+                              {money(s.share_amount)}
+                              <span className="block text-[10px] text-[var(--muted)]">
+                                {num(s.pct).toFixed(2)}%
+                              </span>
                             </>
                           ) : (
                             <span className="text-[var(--muted)]">—</span>
@@ -187,8 +189,8 @@ export default async function PnlPage() {
                 <Td right className={t.profit >= 0 ? "text-emerald-700" : "text-red-700"}>
                   {money(t.profit)}
                 </Td>
-                {investors.map((i) => (
-                  <Td key={i.id} right>{money(investorTotalOf(i.id))}</Td>
+                {shares.map((sh) => (
+                  <Td key={sh.name} right>{money(shareTotalOf(sh.name))}</Td>
                 ))}
               </tr>
             </tfoot>
@@ -196,19 +198,29 @@ export default async function PnlPage() {
         )}
       </Card>
 
-      {investors.length > 0 && (
+      {shares.length > 0 && (
         <Card className="mt-4">
-          <CardHeader title="Investor totals" subtitle="Share of profit across every project" />
+          <CardHeader
+            title="Profit share totals"
+            subtitle="Across every project, at the percentages currently set"
+          />
           <Table>
             <thead>
-              <tr><Th>Investor</Th><Th right>Share of profit</Th><Th right>% of total</Th></tr>
+              <tr><Th>Share</Th><Th right>Share of profit</Th><Th right>% of total</Th></tr>
             </thead>
             <tbody>
-              {investors.map((i) => {
-                const total = investorTotalOf(i.id);
+              {shares.map((sh) => {
+                const total = shareTotalOf(sh.name);
                 return (
-                  <tr key={i.id}>
-                    <Td className="font-medium">{i.name}</Td>
+                  <tr key={sh.name}>
+                    <Td className="font-medium">
+                      {sh.name}
+                      {sh.kind === "company" && (
+                        <span className="ml-2 rounded-full bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] font-normal text-[var(--brand)]">
+                          retained
+                        </span>
+                      )}
+                    </Td>
                     <Td right>{money(total)}</Td>
                     <Td right className="text-[var(--muted)]">
                       {t.profit > 0 ? pct((total / t.profit) * 100, 1) : "—"}

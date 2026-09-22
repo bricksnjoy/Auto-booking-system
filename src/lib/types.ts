@@ -39,17 +39,15 @@ export interface ProjectPnl {
 }
 
 /** One row per investor per project. */
-export interface InvestorSplit {
+export interface ProfitSplit {
   project_id: string;
   project_code: string;
-  commitment_id: string;
-  investor_id: string;
-  investor_name: string;
-  share_mode: "percentage" | "fixed";
-  profit_share_pct: number | null;
-  profit_share_amount: number | null;
-  invested_amount: number | null;
-  status: CommitmentStatus;
+  project_name: string;
+  share_name: string;
+  share_kind: "investors" | "company" | "person";
+  investor_id: string | null;
+  pct: number;
+  sort_order: number;
   profit: number;
-  investor_profit: number;
+  share_amount: number;
 }

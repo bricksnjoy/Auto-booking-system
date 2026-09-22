@@ -6,7 +6,8 @@ import {
 } from "@/components/ui";
 import { extractionAvailable } from "@/lib/extract-bill";
 import { money, date, num, pct } from "@/lib/format";
-import type { ProjectPnl, InvestorSplit } from "@/lib/types";
+import type { ProjectPnl } from "@/lib/types";
+import { StatusBar } from "./status-bar";
 import { VariationsPanel } from "./variations-panel";
 import { BillsPanel } from "./bills-panel";
 
@@ -54,7 +55,11 @@ export default async function ProjectDetailPage({
       .select("*, vendors(name, tin), cost_categories(name)")
       .eq("project_id", id)
       .order("issue_date", { ascending: false }),
-    supabase.from("project_investor_splits").select("*").eq("project_id", id),
+    supabase
+      .from("project_profit_split")
+      .select("*")
+      .eq("project_id", id)
+      .order("sort_order"),
     supabase.from("variations").select("*").eq("project_id", id).order("raised_date"),
     supabase.from("cost_categories").select("id, name").order("sort_order"),
     supabase.from("company").select("taxable_activity_no, gst_registered").eq("id", true).maybeSingle(),
@@ -98,7 +103,13 @@ export default async function ProjectDetailPage({
     raised_date: v.raised_date,
   }));
 
-  const investors = (splits ?? []) as InvestorSplit[];
+  type Share = {
+    share_name: string;
+    share_kind: "investors" | "company" | "person";
+    pct: number;
+    share_amount: number;
+  };
+  const shares = (splits ?? []) as Share[];
 
   // budget vs actual, by cost category
   const byCat = new Map<string, { budget: number; actual: number }>();
@@ -141,6 +152,14 @@ export default async function ProjectDetailPage({
             </Link>
           </div>
         }
+      />
+
+      <StatusBar
+        projectId={id}
+        completedAt={project.completed_at ?? null}
+        paymentReceivedAt={project.payment_received_at ?? null}
+        paymentAmount={project.payment_received_amount ?? null}
+        expected={num(p.value) + num(p.variation)}
       />
 
       <div className={`grid gap-4 sm:grid-cols-2 ${
@@ -195,27 +214,40 @@ export default async function ProjectDetailPage({
         </Card>
 
         <Card>
-          <CardHeader title="Investor split" subtitle="Share of this project's profit" />
-          {investors.length === 0 ? (
-            <Empty message="Self-funded — no investors on this project." />
+          <CardHeader
+            title="Profit share"
+            subtitle="How this project's profit divides"
+          />
+          {shares.length === 0 ? (
+            <Empty message="No profit share set. Add one under Admin." />
           ) : (
             <Table>
               <thead>
-                <tr><Th>Investor</Th><Th right>Share</Th><Th right>Profit</Th></tr>
+                <tr><Th>Share</Th><Th right>%</Th><Th right>Amount</Th></tr>
               </thead>
               <tbody>
-                {investors.map((s) => (
-                  <tr key={s.commitment_id}>
-                    <Td className="font-medium">{s.investor_name}</Td>
-                    <Td right>
-                      {s.share_mode === "fixed"
-                        ? "Fixed"
-                        : `${num(s.profit_share_pct).toFixed(0)}%`}
+                {shares.map((s) => (
+                  <tr key={`${s.share_name}-${s.pct}`}>
+                    <Td className="font-medium">
+                      {s.share_name}
+                      {s.share_kind === "company" && (
+                        <span className="ml-2 rounded-full bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] font-normal text-[var(--brand)]">
+                          retained
+                        </span>
+                      )}
                     </Td>
-                    <Td right>{money(s.investor_profit)}</Td>
+                    <Td right className="text-[var(--muted)]">{num(s.pct).toFixed(2)}%</Td>
+                    <Td right>{money(s.share_amount)}</Td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="bg-[var(--hover)] font-semibold">
+                  <Td>Total</Td>
+                  <Td right>{shares.reduce((a, s) => a + num(s.pct), 0).toFixed(2)}%</Td>
+                  <Td right>{money(shares.reduce((a, s) => a + num(s.share_amount), 0))}</Td>
+                </tr>
+              </tfoot>
             </Table>
           )}
         </Card>

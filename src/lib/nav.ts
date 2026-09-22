@@ -38,6 +38,7 @@ export const NAV: NavGroup[] = [
     group: "Finance",
     defaultOpen: true,
     items: [
+      { href: "/internal", label: "Internal Account", roles: MONEY },
       { href: "/gst", label: "GST Input Schedule", roles: MONEY },
     ],
   },
@@ -46,6 +47,7 @@ export const NAV: NavGroup[] = [
     defaultOpen: true,
     items: [
       { href: "/settings", label: "Company", roles: MONEY },
+      { href: "/profit-share", label: "Profit Share", roles: MONEY },
     ],
   },
 ];

@@ -1,0 +1,189 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+
+export type StatusResult = { error?: string; ok?: boolean };
+
+const refresh = (projectId: string) => {
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/projects");
+  revalidatePath("/internal");
+  revalidatePath("/pnl");
+  revalidatePath("/");
+};
+
+/**
+ * Mark the work finished, and owe everyone their share of it.
+ *
+ * The accrual is written the moment the job is done rather than when the
+ * client pays, because that is when the money is earned — the months in
+ * between are exactly what the internal account exists to show.
+ */
+export async function markCompleted(_prev: unknown, fd: FormData): Promise<StatusResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const projectId = String(fd.get("project_id") ?? "");
+  if (!projectId) return { error: "Missing project." };
+  const on = String(fd.get("date") ?? "").trim() || new Date().toISOString().slice(0, 10);
+
+  const { error: upErr } = await supabase
+    .from("projects")
+    .update({
+      completed_at: new Date(on).toISOString(),
+      status: "completed",
+      progress_pct: 100,
+      actual_end_date: on,
+    })
+    .eq("id", projectId);
+  if (upErr) return { error: upErr.message };
+
+  const { data: shares } = await supabase
+    .from("project_profit_split")
+    .select("share_name, share_kind, pct, investor_id, share_amount")
+    .eq("project_id", projectId);
+
+  const rows = (shares ?? [])
+    .filter((s) => Number(s.share_amount ?? 0) !== 0)
+    .map((s) => ({
+      project_id: projectId,
+      share_name: s.share_name as string,
+      share_kind: s.share_kind as string,
+      pct_snapshot: s.pct as number,
+      investor_id: (s.investor_id as string | null) ?? null,
+      entry_type: "accrual" as const,
+      amount: s.share_amount as number,
+      entry_date: on,
+      source: "completed" as const,
+      note: "Share of profit on completion",
+      created_by: user.id,
+    }));
+
+  if (rows.length) {
+    // the unique index makes a second press a no-op rather than a second debt
+    const { error } = await supabase
+      .from("internal_account_entries")
+      .upsert(rows, { onConflict: "project_id,source,share_name", ignoreDuplicates: true });
+    if (error) return { error: error.message };
+  }
+
+  refresh(projectId);
+  return { ok: true };
+}
+
+/** Undo a completion, taking its accruals back out. */
+export async function unmarkCompleted(_prev: unknown, fd: FormData): Promise<StatusResult> {
+  const supabase = await createClient();
+  const projectId = String(fd.get("project_id") ?? "");
+  if (!projectId) return { error: "Missing project." };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("payment_received_at")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (project?.payment_received_at) {
+    return { error: "Payment is already recorded. Undo that first." };
+  }
+
+  await supabase
+    .from("internal_account_entries")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("source", "completed");
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ completed_at: null })
+    .eq("id", projectId);
+  if (error) return { error: error.message };
+
+  refresh(projectId);
+  return { ok: true };
+}
+
+/**
+ * The money arrived. Every share accrued on completion is settled against it,
+ * which clears the balance without erasing that it was ever owed.
+ */
+export async function markPaymentReceived(_prev: unknown, fd: FormData): Promise<StatusResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const projectId = String(fd.get("project_id") ?? "");
+  if (!projectId) return { error: "Missing project." };
+  const on = String(fd.get("date") ?? "").trim() || new Date().toISOString().slice(0, 10);
+  const amountRaw = String(fd.get("amount") ?? "").replace(/[^0-9.-]/g, "");
+  const amount = amountRaw ? Number(amountRaw) : null;
+
+  const { data: accruals } = await supabase
+    .from("internal_account_entries")
+    .select("share_name, share_kind, pct_snapshot, investor_id, amount")
+    .eq("project_id", projectId)
+    .eq("source", "completed");
+
+  if (!accruals?.length) {
+    return { error: "Mark the work completed first — there is nothing accrued to settle." };
+  }
+
+  const { error: upErr } = await supabase
+    .from("projects")
+    .update({
+      payment_received_at: new Date(on).toISOString(),
+      payment_received_amount: amount,
+    })
+    .eq("id", projectId);
+  if (upErr) return { error: upErr.message };
+
+  const rows = accruals.map((a) => ({
+    project_id: projectId,
+    share_name: a.share_name as string,
+    share_kind: a.share_kind as string,
+    pct_snapshot: a.pct_snapshot as number | null,
+    investor_id: (a.investor_id as string | null) ?? null,
+    entry_type: "settlement" as const,
+    // settlements are negative, so a balance stays a plain sum
+    amount: -Number(a.amount ?? 0),
+    entry_date: on,
+    source: "payment_received" as const,
+    note: "Settled when the client paid",
+    created_by: user.id,
+  }));
+
+  const { error } = await supabase
+    .from("internal_account_entries")
+    .upsert(rows, { onConflict: "project_id,source,share_name", ignoreDuplicates: true });
+  if (error) return { error: error.message };
+
+  refresh(projectId);
+  return { ok: true };
+}
+
+/** Undo a payment, putting what was owed back on the books. */
+export async function unmarkPaymentReceived(_prev: unknown, fd: FormData): Promise<StatusResult> {
+  const supabase = await createClient();
+  const projectId = String(fd.get("project_id") ?? "");
+  if (!projectId) return { error: "Missing project." };
+
+  await supabase
+    .from("internal_account_entries")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("source", "payment_received");
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ payment_received_at: null, payment_received_amount: null })
+    .eq("id", projectId);
+  if (error) return { error: error.message };
+
+  refresh(projectId);
+  return { ok: true };
+}
