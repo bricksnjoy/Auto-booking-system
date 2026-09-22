@@ -30,10 +30,16 @@ interface Split {
 
 export default async function PnlPage() {
   const supabase = await createClient();
-  const [{ data: pnlData }, { data: splitData }] = await Promise.all([
+  const [{ data: pnlData }, { data: splitData }, { data: company }] = await Promise.all([
     supabase.from("project_pnl").select("*").order("code"),
     supabase.from("project_investor_splits").select("*"),
+    supabase.from("company").select("gst_registered").eq("id", true).maybeSingle(),
   ]);
+
+  // Until the company is registered, no GST is collected on a contract and
+  // none is recoverable on a bill. Showing a column of it would be stating a
+  // liability and a claim that do not exist.
+  const showGst = company?.gst_registered ?? false;
 
   const rows = (pnlData ?? []) as Pnl[];
   const splits = (splitData ?? []) as Split[];
@@ -77,12 +83,20 @@ export default async function PnlPage() {
     <div>
       <PageHeader
         title="Project P&amp;L"
-        subtitle="Value, variation, GST, expenditure and profit — with each investor's share"
+        subtitle={
+          showGst
+            ? "Value, variation, GST, expenditure and profit — with each investor's share"
+            : "Value, variation, expenditure and profit — with each investor's share"
+        }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className={`mb-6 grid gap-4 sm:grid-cols-2 ${
+        showGst ? "xl:grid-cols-5" : "xl:grid-cols-4"
+      }`}>
         <Stat label="Project value" value={money(t.value)} hint={`+ ${money(t.variation)} variation`} />
-        <Stat label="GST" value={money(t.gst)} hint="Collected for MIRA, not deducted" />
+        {showGst && (
+          <Stat label="GST" value={money(t.gst)} hint="Collected for MIRA, not deducted" />
+        )}
         <Stat label="Expenditure" value={money(t.exp)} tone="bad" />
         <Stat label="Profit" value={money(t.profit)} tone={t.profit >= 0 ? "good" : "bad"} />
         <Stat
@@ -95,7 +109,11 @@ export default async function PnlPage() {
       <Card>
         <CardHeader
           title="Per project"
-          subtitle="Profit = (Value + Variation) − EXP. GST is reported but not deducted."
+          subtitle={
+            showGst
+              ? "Profit = (Value + Variation) − EXP. GST is reported but not deducted."
+              : "Profit = (Value + Variation) − EXP."
+          }
         />
         {rows.length === 0 ? (
           <Empty message="No projects yet." />
@@ -106,7 +124,7 @@ export default async function PnlPage() {
                 <Th>Project</Th>
                 <Th right>Project Value</Th>
                 <Th right>Variation</Th>
-                <Th right>GST</Th>
+                {showGst && <Th right>GST</Th>}
                 <Th right>EXP</Th>
                 <Th right>Profit</Th>
                 {investors.map((i) => (
@@ -133,7 +151,9 @@ export default async function PnlPage() {
                     <Td right className={num(r.variation) ? "text-[var(--accent)]" : "text-[var(--muted)]"}>
                       {num(r.variation) ? money(r.variation) : "—"}
                     </Td>
-                    <Td right className="text-[var(--muted)]">{money(r.gst)}</Td>
+                    {showGst && (
+                      <Td right className="text-[var(--muted)]">{money(r.gst)}</Td>
+                    )}
                     <Td right className="text-red-700">{money(r.exp)}</Td>
                     <Td right className={`font-medium ${profit >= 0 ? "text-emerald-700" : "text-red-700"}`}>
                       {money(profit)}
@@ -162,7 +182,7 @@ export default async function PnlPage() {
                 <Td>Total</Td>
                 <Td right>{money(t.value)}</Td>
                 <Td right>{money(t.variation)}</Td>
-                <Td right>{money(t.gst)}</Td>
+                {showGst && <Td right>{money(t.gst)}</Td>}
                 <Td right>{money(t.exp)}</Td>
                 <Td right className={t.profit >= 0 ? "text-emerald-700" : "text-red-700"}>
                   {money(t.profit)}

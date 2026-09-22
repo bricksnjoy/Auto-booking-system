@@ -143,14 +143,19 @@ export default async function ProjectDetailPage({
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className={`grid gap-4 sm:grid-cols-2 ${
+        company?.gst_registered ? "xl:grid-cols-5" : "xl:grid-cols-4"
+      }`}>
         <Stat label="Project value" value={money(p.value)} />
         <Stat
           label="Variation"
           value={num(p.variation) ? money(p.variation) : "—"}
           hint={`Revised ${money(revised)}`}
         />
-        <Stat label="GST" value={money(p.gst)} hint="Collected for MIRA" />
+        {/* nothing is collected for MIRA until the company is registered */}
+        {company?.gst_registered && (
+          <Stat label="GST" value={money(p.gst)} hint="Collected for MIRA" />
+        )}
         <Stat label="EXP" value={money(p.exp)} tone="bad" hint={`${bills?.length ?? 0} bills`} />
         <Stat
           label="Profit"
