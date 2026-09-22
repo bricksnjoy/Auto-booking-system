@@ -12,17 +12,36 @@ export default async function ShopsPage() {
       .from("vendors")
       .select("id, name, tin, trade, contact_name, phone, email, address, notes")
       .order("name"),
-    supabase.from("bills").select("vendor_id, total, tax_amount, issue_date"),
+    supabase
+      .from("bills")
+      .select("vendor_id, total, tax_amount, issue_date, projects(id, name)"),
   ]);
 
-  const by = new Map<string, { bills: number; spend: number; gst: number; last: string | null }>();
+  type Tally = {
+    bills: number;
+    spend: number;
+    gst: number;
+    last: string | null;
+    /** which jobs this shop has supplied, and how much on each */
+    projects: Map<string, { name: string; spend: number }>;
+  };
+
+  const by = new Map<string, Tally>();
   for (const b of bills ?? []) {
     if (!b.vendor_id) continue;
-    const row = by.get(b.vendor_id) ?? { bills: 0, spend: 0, gst: 0, last: null };
+    const row: Tally =
+      by.get(b.vendor_id) ?? { bills: 0, spend: 0, gst: 0, last: null, projects: new Map() };
     row.bills += 1;
     row.spend += num(b.total);
     row.gst += num(b.tax_amount);
     if (b.issue_date && (!row.last || b.issue_date > row.last)) row.last = b.issue_date;
+
+    const p = b.projects as unknown as { id: string; name: string } | null;
+    if (p) {
+      const seen = row.projects.get(p.id) ?? { name: p.name, spend: 0 };
+      seen.spend += num(b.total);
+      row.projects.set(p.id, seen);
+    }
     by.set(b.vendor_id, row);
   }
 
@@ -34,6 +53,9 @@ export default async function ShopsPage() {
       spend: t?.spend ?? 0,
       gst: t?.gst ?? 0,
       last_bill: t?.last ?? null,
+      projects: t
+        ? [...t.projects].map(([id, v]) => ({ id, name: v.name, spend: v.spend }))
+        : [],
     };
   });
 

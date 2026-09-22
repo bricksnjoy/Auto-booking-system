@@ -34,6 +34,17 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
     if (p) projects.set(p.id, p.name);
   }
 
+  // and what is actually bought here, which is how you tell a hardware
+  // account from a joinery one without opening every bill
+  const categories = new Map<string, number>();
+  for (const b of rows) {
+    const c = (b.cost_categories as unknown as { name: string } | null)?.name ?? "Uncategorised";
+    categories.set(c, (categories.get(c) ?? 0) + num(b.total));
+  }
+  const byCategory = [...categories]
+    .map(([name, spend]) => ({ name, spend }))
+    .sort((a, b) => b.spend - a.spend);
+
   return (
     <div>
       <PageHeader
@@ -92,7 +103,7 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
         </Card>
 
         <Card>
-          <CardHeader title="Projects supplied" />
+          <CardHeader title="Projects supplied" subtitle="What this shop has been used for" />
           {projects.size === 0 ? (
             <Empty message="No bills recorded against this shop yet." />
           ) : (
@@ -116,6 +127,27 @@ export default async function ShopPage({ params }: { params: Promise<{ id: strin
           )}
         </Card>
       </div>
+
+      {byCategory.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader title="What is bought here" subtitle="Spend by cost category" />
+          <ul className="divide-y divide-[var(--border)] text-sm">
+            {byCategory.map((c) => (
+              <li key={c.name} className="flex items-center gap-4 px-5 py-3">
+                <span className="w-56 shrink-0 truncate">{c.name}</span>
+                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--border)]">
+                  <span className="block h-full rounded-full bg-[var(--brand)]"
+                    style={{ width: `${spend ? (c.spend / spend) * 100 : 0}%` }} />
+                </span>
+                <span className="w-16 shrink-0 text-right text-xs text-[var(--muted)]">
+                  {spend ? Math.round((c.spend / spend) * 100) : 0}%
+                </span>
+                <span className="w-32 shrink-0 text-right tabular-nums">{money(c.spend)}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="Bills" subtitle={`Everything bought here · ${money(spend)}`} />
