@@ -39,6 +39,7 @@ export const NAV: NavGroup[] = [
     defaultOpen: true,
     items: [
       { href: "/internal", label: "Internal Account", roles: MONEY },
+      { href: "/financing", label: "Project Financing", roles: MONEY },
       { href: "/gst", label: "GST Input Schedule", roles: MONEY },
     ],
   },
