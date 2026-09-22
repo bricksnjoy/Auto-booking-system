@@ -30,6 +30,7 @@ export const NAV: NavGroup[] = [
       { href: "/projects", label: "Projects", roles: ALL },
       { href: "/clients", label: "Clients", roles: ALL },
       { href: "/shops", label: "Shops", roles: ALL },
+      { href: "/investors", label: "Investors", roles: MONEY },
       { href: "/tasks", label: "Tasks & Calendar", roles: ALL },
       { href: "/pnl", label: "Project P&L", roles: MONEY },
     ],

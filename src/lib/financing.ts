@@ -12,7 +12,7 @@ export interface PoolContribution {
 export interface FinancingSourceInput {
   id: string;
   name: string;
-  source_type: "external_loan" | "capital_pool";
+  source_type: "external_loan" | "capital_pool" | "investor";
   amount: number;
   pool: PoolContribution[];
 }

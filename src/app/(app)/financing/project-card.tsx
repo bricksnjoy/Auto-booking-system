@@ -6,6 +6,7 @@ import { Card, Table, Th, Td, Empty } from "@/components/ui";
 import { money, num } from "@/lib/format";
 import { computeFinancing, type FinancingSourceInput } from "@/lib/financing";
 import { FinancingModal, type SourceValues } from "@/components/financing-modal";
+import type { SourceType } from "@/app/actions/financing";
 import { deleteFinancingSource, setRepayPct, type FinancingResult } from "@/app/actions/financing";
 
 export interface FinancingProject {
@@ -97,13 +98,18 @@ export function ProjectFinancingCard({ project }: { project: FinancingProject })
           </thead>
           <tbody>
             {f.sources.map((s) => (
-              <SourceRows key={s.id} source={s} projectId={project.id} onEdit={() => setEditing({
-                id: s.id,
-                name: s.name,
-                source_type: s.source_type,
-                amount: s.amount,
-                pool: s.pool,
-              })} />
+              <SourceRows key={s.id} source={s} projectId={project.id}
+                onEdit={
+                  s.source_type === "investor"
+                    ? undefined
+                    : () => setEditing({
+                        id: s.id,
+                        name: s.name,
+                        source_type: s.source_type as SourceType,
+                        amount: s.amount,
+                        pool: s.pool,
+                      })
+                } />
             ))}
           </tbody>
           <tfoot>
@@ -136,7 +142,7 @@ function SourceRows({
 }: {
   source: ReturnType<typeof computeFinancing>["sources"][number];
   projectId: string;
-  onEdit: () => void;
+  onEdit?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const isPool = source.source_type === "capital_pool";
@@ -156,15 +162,21 @@ function SourceRows({
           )}
         </Td>
         <Td className="text-xs text-[var(--muted)]">
-          {isPool ? "Capital pool" : "External loan"}
+          {isPool
+            ? "Capital pool"
+            : source.source_type === "investor"
+              ? "Investor"
+              : "External loan"}
         </Td>
         <Td right>{money(source.amount)}</Td>
         <Td right className="text-[var(--muted)]">{(source.share * 100).toFixed(2)}%</Td>
         <Td right>
           {money(source.repayment)}
           <span className="ml-2 inline-flex gap-1.5 align-middle text-xs">
-            <button type="button" onClick={onEdit}
-              className="text-[var(--muted)] hover:text-[var(--brand)] hover:underline">Edit</button>
+            {onEdit && (
+              <button type="button" onClick={onEdit}
+                className="text-[var(--muted)] hover:text-[var(--brand)] hover:underline">Edit</button>
+            )}
             <button type="button" onClick={() => deleteFinancingSource(source.id, projectId)}
               className="text-[var(--muted)] hover:text-red-700">Remove</button>
           </span>

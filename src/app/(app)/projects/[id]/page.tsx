@@ -10,6 +10,7 @@ import type { ProjectPnl } from "@/lib/types";
 import { StatusBar } from "./status-bar";
 import { VariationsPanel } from "./variations-panel";
 import { BillsPanel } from "./bills-panel";
+import { InvestmentsPanel, type InvestmentRow } from "./investments-panel";
 
 export const dynamic = "force-dynamic";
 // bill reading waits on Google, and retries when it is busy
@@ -43,6 +44,10 @@ export default async function ProjectDetailPage({
     { data: variations },
     { data: categories },
     { data: company },
+    { data: financingSources },
+    { data: directory },
+    { data: retainedRows },
+    { data: capitalRows },
   ] = await Promise.all([
     supabase.from("projects").select("*, clients(name)").eq("id", id).single(),
     supabase.from("project_phases").select("*").eq("project_id", id).order("sort_order"),
@@ -63,7 +68,37 @@ export default async function ProjectDetailPage({
     supabase.from("variations").select("*").eq("project_id", id).order("raised_date"),
     supabase.from("cost_categories").select("id, name").order("sort_order"),
     supabase.from("company").select("taxable_activity_no, gst_registered").eq("id", true).maybeSingle(),
+    supabase
+      .from("project_financing_sources")
+      .select("id, name, source_type, investor_id, amount, funded_on")
+      .eq("project_id", id)
+      .in("source_type", ["investor", "capital_pool"])
+      .order("funded_on", { ascending: false }),
+    supabase.from("investors").select("id, name").order("name"),
+    // company retained profit accrued, and all company capital already put into
+    // projects — the difference is what is free to reinvest
+    supabase
+      .from("internal_account_entries")
+      .select("amount")
+      .eq("share_kind", "company")
+      .eq("entry_type", "accrual"),
+    supabase
+      .from("project_financing_sources")
+      .select("amount")
+      .eq("source_type", "capital_pool"),
   ]);
+
+  const investmentRows: InvestmentRow[] = (financingSources ?? []).map((s) => ({
+    id: s.id,
+    name: s.name,
+    source_type: s.source_type as InvestmentRow["source_type"],
+    investor_id: (s.investor_id as string | null) ?? null,
+    amount: num(s.amount),
+    funded_on: s.funded_on ?? null,
+  }));
+  const retainedTotal = (retainedRows ?? []).reduce((a, r) => a + num(r.amount), 0);
+  const capitalDeployed = (capitalRows ?? []).reduce((a, r) => a + num(r.amount), 0);
+  const availableCapital = Math.round((retainedTotal - capitalDeployed) * 100) / 100;
 
   // sign the stored bill photos so they can be shown without making the
   // bucket public
@@ -302,6 +337,15 @@ export default async function ProjectDetailPage({
 
         <div className="xl:col-span-2">
           <VariationsPanel projectId={id} rows={variationRows} />
+        </div>
+
+        <div className="xl:col-span-2">
+          <InvestmentsPanel
+            projectId={id}
+            rows={investmentRows}
+            directory={directory ?? []}
+            availableCapital={availableCapital}
+          />
         </div>
 
         <div className="xl:col-span-2">
