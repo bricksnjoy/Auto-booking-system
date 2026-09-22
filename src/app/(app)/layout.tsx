@@ -35,14 +35,12 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-64 shrink-0 border-r border-[var(--border)] bg-[var(--surface)] md:block">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] md:block">
         <div className="flex h-16 items-center gap-2.5 border-b border-[var(--border)] px-5">
           <Logo size={34} />
           <Wordmark size="sm" />
         </div>
-        <div className="max-h-[calc(100vh-4rem)] overflow-y-auto">
-          <Sidebar groups={groups} quickActions={quickActions} />
-        </div>
+        <Sidebar groups={groups} quickActions={quickActions} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

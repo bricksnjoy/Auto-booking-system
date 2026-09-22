@@ -65,11 +65,15 @@ export async function markCompleted(_prev: unknown, fd: FormData): Promise<Statu
       created_by: user.id,
     }));
 
+  // clear any accruals from a previous completion of this project, so pressing
+  // completed again refreshes rather than doubling the amounts owed
+  await supabase
+    .from("internal_account_entries")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("source", "completed");
   if (rows.length) {
-    // the unique index makes a second press a no-op rather than a second debt
-    const { error } = await supabase
-      .from("internal_account_entries")
-      .upsert(rows, { onConflict: "project_id,source,share_name", ignoreDuplicates: true });
+    const { error } = await supabase.from("internal_account_entries").insert(rows);
     if (error) return { error: error.message };
   }
 
@@ -159,9 +163,12 @@ export async function markPaymentReceived(_prev: unknown, fd: FormData): Promise
     created_by: user.id,
   }));
 
-  const { error } = await supabase
+  await supabase
     .from("internal_account_entries")
-    .upsert(rows, { onConflict: "project_id,source,share_name", ignoreDuplicates: true });
+    .delete()
+    .eq("project_id", projectId)
+    .eq("source", "payment_received");
+  const { error } = await supabase.from("internal_account_entries").insert(rows);
   if (error) return { error: error.message };
 
   refresh(projectId);
