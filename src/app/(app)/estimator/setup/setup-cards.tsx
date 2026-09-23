@@ -170,7 +170,8 @@ export function RecipeCard({
           <tr>
             <th className={th}>Part</th><th className={th}>Made of</th>
             <th className={th}>Width (in)</th><th className={th}>Height (in)</th><th className={th}>Qty</th>
-            <th className={th}>{isFront ? "Front size" : "Per shelf"}</th><th />
+            <th className={th}>{isFront ? "Front size" : "Per shelf"}</th>
+            {!isFront && <th className={th}>Along wall</th>}<th />
           </tr>
         </thead>
         <tbody>
@@ -191,6 +192,7 @@ function PartRow({ p, cabinet, materials }: { p?: Part; cabinet: Part["cabinet"]
   const [dirty, setDirty] = useState(!p);
   const [materialId, setMaterialId] = useState(p?.material_id ?? materials[0]?.id ?? "");
   const [front, setFront] = useState(p?.front_panel ?? false);
+  const [along, setAlong] = useState(p?.along_wall ?? false);
   const isFront = cabinet === "door" || cabinet === "drawer";
   const isBoard = materials.find((m) => m.id === materialId)?.kind === "board";
   const formId = `part-${p?.id ?? `new-${cabinet}`}`;
@@ -212,7 +214,12 @@ function PartRow({ p, cabinet, materials }: { p?: Part; cabinet: Part["cabinet"]
           {materials.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
       </td>
-      {isBoard && !front ? (
+      {isBoard && along ? (
+        <>
+          <td className="px-2 py-2 text-xs text-[var(--muted)]">length of the wall</td>
+          <td className="px-2 py-1.5"><input form={formId} name="height_in" type="number" step="0.01" defaultValue={p?.height_in ?? 24} className={input} onChange={touch} aria-label="Depth in inches" /></td>
+        </>
+      ) : isBoard && !front ? (
         <>
           <td className="px-2 py-1.5"><input form={formId} name="width_in" type="number" step="0.01" defaultValue={p?.width_in ?? ""} className={input} onChange={touch} aria-label="Width in inches" /></td>
           <td className="px-2 py-1.5"><input form={formId} name="height_in" type="number" step="0.01" defaultValue={p?.height_in ?? ""} className={input} onChange={touch} aria-label="Height in inches" /></td>
@@ -232,6 +239,13 @@ function PartRow({ p, cabinet, materials }: { p?: Part; cabinet: Part["cabinet"]
             onChange={touch} className="h-4 w-4 accent-[var(--brand)]" />
         )}
       </td>
+      {!isFront && (
+        <td className="px-2 py-2">
+          <input form={formId} type="checkbox" name="along_wall" checked={along} aria-label="Cut to the length of the wall"
+            title="Cut to the length of each wall, in as few pieces as the sheet allows — like a worktop"
+            onChange={(e) => { setAlong(e.target.checked); touch(); }} className="h-4 w-4 accent-[var(--brand)]" />
+        </td>
+      )}
       <td className="whitespace-nowrap px-2 py-1.5 text-right">
         <span className="inline-flex items-center gap-2">
           <SaveBtnFor form={formId} pending={pending} ok={Boolean(state?.ok)} dirty={dirty} />

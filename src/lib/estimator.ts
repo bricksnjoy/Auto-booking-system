@@ -33,6 +33,8 @@ export interface Part {
   qty: number;
   per_shelf: boolean;
   front_panel: boolean;
+  /** cut to the length of each wall run, like a worktop; height_in is its depth */
+  along_wall?: boolean;
 }
 
 export interface Settings {
@@ -144,6 +146,38 @@ export interface EstimateResult {
   price: number;
 }
 
+/**
+ * How long a worktop is on each wall. Where two walls meet, one run carries
+ * on through the corner and the other stops short of it by the cabinet depth,
+ * so the pieces meet without overlapping: an L runs wall A through, a U runs
+ * the back wall B through.
+ */
+export function wallStrips(shape: Shape, runs: number[], depth: number) {
+  const [a = 0, b = 0, c = 0] = runs;
+  if (shape === "I") return [a];
+  if (shape === "L") return [a, Math.max(b - depth, 0)];
+  if (shape === "U") return [Math.max(a - depth, 0), b, Math.max(c - depth, 0)];
+  return [];
+}
+
+/**
+ * Cut one wall's worktop from sheets `sheet` long: in one piece if it fits,
+ * otherwise in the longest pieces that end on a cabinet joint, with whatever
+ * is left as the last piece — so every seam sits over a cabinet division.
+ */
+export function splitRun(len: number, sheet: number, moduleLen: number) {
+  if (len <= sheet + 1e-6) return [len];
+  const step = moduleLen > 0 && moduleLen <= sheet ? Math.floor(sheet / moduleLen) * moduleLen : sheet;
+  const pieces: number[] = [];
+  let rest = len;
+  while (rest > sheet + 1e-6) {
+    pieces.push(step);
+    rest -= step;
+  }
+  if (rest > 1e-6) pieces.push(rest);
+  return pieces;
+}
+
 /** 8ft × 4ft × 8mm — or, for sheets sold in metric, 3000 × 750 × 15mm */
 export function sheetSize(m: Pick<Material, "length_ft" | "width_ft" | "thickness_mm">) {
   const l = Number(m.length_ft) || 0;
@@ -231,8 +265,21 @@ export function estimate(
     // each corner leaves one cabinet-depth of run with its front blocked
     const blind = moduleLen > 0 ? Math.min(modules, (corners * depth) / moduleLen) : 0;
 
-    for (const p of parts.filter((x) => x.cabinet === g)) {
+    for (const p of parts.filter((x) => x.cabinet === g && !x.along_wall)) {
       addPart(g, "Carcass", p, modules * (p.per_shelf ? gi.shelves : 1));
+    }
+
+    // worktops run the length of each wall, in as few pieces as the sheet allows
+    const strips = wallStrips(gi.shape, runs, depth);
+    for (const p of parts.filter((x) => x.cabinet === g && x.along_wall)) {
+      const m = mat.get(p.material_id);
+      const longest = Math.max(Number(m?.length_ft) || 0, Number(m?.width_ft) || 0) * 12;
+      strips.forEach((len, i) => {
+        if (len <= 0 || !longest) return;
+        for (const piece of splitRun(len, longest, moduleLen)) {
+          addPart(g, `Wall ${"ABC"[i]}`, { ...p, qty: 1 }, 1, piece, Number(p.height_in) || depth);
+        }
+      });
     }
 
     let doors = 0;

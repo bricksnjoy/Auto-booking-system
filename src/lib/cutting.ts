@@ -108,9 +108,12 @@ export function cuttingLayouts(cuts: CutLine[], materials: Material[], kerf: num
     const id = nameToId.get(c.material);
     if (!id) continue;
     const count = Math.ceil(c.pieces - 1e-9);
-    const where = `${c.group === "bottom" ? "B" : "T"}${c.source === "Carcass" ? "" : ` ${c.source.toLowerCase()}`}`;
+    const side = c.group === "bottom" ? "B" : "T";
+    const label = c.source.startsWith("Wall ")
+      ? `${side} · ${c.part} · ${c.source.toLowerCase()}`
+      : `${side}${c.source === "Carcass" ? "" : ` ${c.source.toLowerCase()}`} · ${c.part}`;
     const list = byMaterial.get(id) ?? [];
-    for (let i = 0; i < count; i++) list.push({ label: `${where} · ${c.part}`, w: c.width_in, h: c.height_in });
+    for (let i = 0; i < count; i++) list.push({ label, w: c.width_in, h: c.height_in });
     byMaterial.set(id, list);
   }
 

@@ -81,13 +81,15 @@ export async function savePart(_prev: unknown, fd: FormData): Promise<EstimatorR
   if (qty === null || qty <= 0) return { error: "Enter how many." };
 
   const frontPanel = fd.get("front_panel") === "on";
+  const alongWall = fd.get("along_wall") === "on";
   const row = {
     cabinet,
     name,
     material_id: materialId,
     qty,
-    width_in: frontPanel ? null : num(fd, "width_in"),
+    width_in: frontPanel || alongWall ? null : num(fd, "width_in"),
     height_in: frontPanel ? null : num(fd, "height_in"),
+    along_wall: alongWall,
     per_shelf: fd.get("per_shelf") === "on",
     front_panel: frontPanel,
   };
