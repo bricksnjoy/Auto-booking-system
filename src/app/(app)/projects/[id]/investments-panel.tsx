@@ -38,6 +38,8 @@ export function InvestmentsPanel({
   locked = false,
   projectName = "",
   owedTo = {},
+  cost = 0,
+  clientPaid = false,
 }: {
   projectId: string;
   rows: InvestmentRow[];
@@ -48,11 +50,21 @@ export function InvestmentsPanel({
   projectName?: string;
   /** what each private investor is still owed on this project */
   owedTo?: Record<string, { capital: number; profit: number }>;
+  /** the project's cost (EXP) — what investors' capital paid for */
+  cost?: number;
+  /** whether the client has paid, so the cost has come back */
+  clientPaid?: boolean;
 }) {
   const [mode, setMode] = useState<null | "investor" | "reinvest">(null);
 
   // an investment counts only investor + reinvestment money, not ad-hoc loans
   const invested = rows.reduce((s, r) => s + num(r.amount), 0);
+  const privateCapital = rows
+    .filter((r) => r.source_type === "investor")
+    .reduce((s, r) => s + num(r.amount), 0);
+  const poolCapital = rows
+    .filter((r) => r.source_type === "capital_pool")
+    .reduce((s, r) => s + num(r.amount), 0);
 
   return (
     <Card>
@@ -144,6 +156,7 @@ export function InvestmentsPanel({
                         projectName,
                         capitalOwed: owedTo[r.investor_id]?.capital ?? 0,
                         profitOwed: owedTo[r.investor_id]?.profit ?? 0,
+                        clientPaid,
                       }} />
                     </span>
                   ) : (
@@ -184,11 +197,75 @@ export function InvestmentsPanel({
         </Table>
       )}
 
+      {invested > 0 && (
+        <CostRecovery cost={cost} privateCapital={privateCapital} poolCapital={poolCapital}
+          clientPaid={clientPaid} />
+      )}
+
       <p className="border-t border-[var(--border)] px-5 py-3 text-xs text-[var(--muted)]">
         Investments and reinvestments show up under Project Financing too — they are the same
         records, so the repayment split stays accurate.
       </p>
     </Card>
+  );
+}
+
+/**
+ * Investors' money pays for the project's costs, so it comes back out of the
+ * cost part of the client's payment — never out of profit. Profit is shared
+ * separately, by the profit share.
+ */
+function CostRecovery({
+  cost,
+  privateCapital,
+  poolCapital,
+  clientPaid,
+}: {
+  cost: number;
+  privateCapital: number;
+  poolCapital: number;
+  clientPaid: boolean;
+}) {
+  const invested = privateCapital + poolCapital;
+  const companyPaid = Math.max(cost - invested, 0);
+  const beyondCost = Math.max(invested - cost, 0);
+
+  return (
+    <div className="border-t border-[var(--border)] px-5 py-4">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        Paid back from cost
+      </p>
+      <p className="mb-3 text-xs text-[var(--muted)]">
+        Their money paid for the work, so it is returned out of the project&apos;s cost when the
+        client pays — the profit is shared on top of that and is not touched.
+        {clientPaid ? " The client has paid, so the cost is back in hand." : " The client has not paid yet."}
+      </p>
+      <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+        <div className="flex justify-between">
+          <dt className="text-[var(--muted)]">Project cost (EXP)</dt>
+          <dd className="font-medium">{money(cost)}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-[var(--muted)]">↳ back to private investors</dt>
+          <dd>{money(privateCapital)}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-[var(--muted)]">↳ back to the capital pool</dt>
+          <dd>{money(poolCapital)}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-[var(--muted)]">↳ paid by the company itself</dt>
+          <dd>{money(companyPaid)}</dd>
+        </div>
+      </dl>
+      {beyondCost > 0.005 && (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {money(beyondCost)} more has been invested than the project has cost so far. Until the
+          costs catch up, that part of their capital is not covered by the cost and would have to
+          come from elsewhere.
+        </p>
+      )}
+    </div>
   );
 }
 

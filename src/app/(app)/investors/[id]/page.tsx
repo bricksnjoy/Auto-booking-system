@@ -62,7 +62,7 @@ export default async function InvestorPage({ params }: { params: Promise<{ id: s
       </div>
 
       <Card className="mb-6">
-        <CardHeader title="What they are owed" subtitle="By project — their capital, and their profit once the work is done" />
+        <CardHeader title="What they are owed" subtitle="By project — their capital comes back out of the project cost, their profit out of its profit share" />
         {rows.length === 0 ? (
           <Empty message="No investments recorded for this investor yet." />
         ) : (

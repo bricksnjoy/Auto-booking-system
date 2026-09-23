@@ -345,6 +345,8 @@ export default async function ProjectDetailPage({
             locked={locked}
             projectName={p.project_name}
             owedTo={owedTo}
+            cost={num(p.exp)}
+            clientPaid={Boolean(project.payment_received_at)}
             projectId={id}
             rows={investmentRows}
             directory={directory ?? []}

@@ -15,6 +15,8 @@ export interface RepayTarget {
   projectName: string;
   capitalOwed: number;
   profitOwed: number;
+  /** whether the client has paid — capital comes back out of that payment's cost */
+  clientPaid?: boolean;
 }
 
 export function RepayButton({ target }: { target: RepayTarget }) {
@@ -76,6 +78,7 @@ function RepayModal({ target, onClose }: { target: RepayTarget; onClose: () => v
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="r-capital" className={label}>Capital returned</label>
+              <p className="-mt-1 mb-1.5 text-[11px] text-[var(--muted)]">from the project cost</p>
               <input id="r-capital" name="capital" type="number" step="0.01" min="0"
                 max={target.capitalOwed} value={capital} onChange={(e) => setCapital(e.target.value)}
                 className={input} />
@@ -83,6 +86,7 @@ function RepayModal({ target, onClose }: { target: RepayTarget; onClose: () => v
             </div>
             <div>
               <label htmlFor="r-profit" className={label}>Profit paid</label>
+              <p className="-mt-1 mb-1.5 text-[11px] text-[var(--muted)]">from their profit share</p>
               <input id="r-profit" name="profit" type="number" step="0.01" min="0"
                 max={target.profitOwed} value={profit} onChange={(e) => setProfit(e.target.value)}
                 className={input} disabled={target.profitOwed <= 0} />
@@ -103,6 +107,17 @@ function RepayModal({ target, onClose }: { target: RepayTarget; onClose: () => v
               <input id="r-note" name="note" className={input} placeholder="Bank transfer" />
             </div>
           </div>
+
+          <p className="text-xs text-[var(--muted)]">
+            Their capital paid for the work, so it is returned out of the cost part of the
+            client&apos;s payment — it does not reduce the project&apos;s profit.
+            {target.clientPaid === false && Number(capital) > 0 && (
+              <span className="mt-1 block text-amber-800">
+                The client has not paid for this project yet, so this capital is being returned
+                before the cost has come back.
+              </span>
+            )}
+          </p>
 
           <p className="rounded-lg bg-[var(--hover)] px-3 py-2 text-sm">
             Paying <span className="font-medium">{money(paying)}</span>
