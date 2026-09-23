@@ -310,8 +310,14 @@ function WallElevation({
     const gr = result.groups.find((x) => x.group === g)!;
     const mod = g === "bottom" ? settings.bottom_module_in : settings.top_module_in;
     const plinth = g === "bottom" ? 4 : 0;
-    const modules = Math.max(1, Math.round(len / mod));
-    const modW = len / modules;
+    // in an L or U the corner end of a run is blocked by the other run: a closed panel, no doors
+    const ends = cornerEnds(input[g].shape, wall);
+    const depth = g === "bottom" ? settings.bottom_depth_in : settings.top_depth_in;
+    const cl = ends.left ? Math.min(depth, len) : 0;
+    const cr = ends.right ? Math.min(depth, Math.max(len - cl, 0)) : 0;
+    const zone = Math.max(len - cl - cr, 0);
+    const modules = Math.max(1, Math.round(zone / mod));
+    const modW = zone / modules;
     const before = drawerModulesBefore(g);
     const drawerModules = Math.ceil(gr.drawers / 3);
     const shelves = input[g].shelves;
@@ -327,13 +333,27 @@ function WallElevation({
           // with the skirting off: the legs
           <g>
             <line x1={0} y1={y0 + bodyH} x2={len} y2={y0 + bodyH} stroke={INK} strokeWidth={fs / 10} />
-            {Array.from({ length: modules }, (_, k) => [k * modW + 2, (k + 1) * modW - 3.5]).flat().map((lx, i) => (
+            {Array.from({ length: modules }, (_, k) => [cl + k * modW + 2, cl + (k + 1) * modW - 3.5]).flat().map((lx, i) => (
               <rect key={i} x={lx} y={y0 + bodyH} width={1.5} height={plinth} fill={MUTED} />
             ))}
           </g>
         ))}
+        {[cl ? [0, cl] : null, cr ? [len - cr, cr] : null].filter(Boolean).map((c) => {
+          const [cx, cw] = c as number[];
+          return (
+            <g key={`corner-${cx}`}>
+              <rect x={cx} y={y0} width={cw} height={bodyH} fill="#eceff3" stroke={INK} strokeWidth={fs / 10} />
+              <line x1={cx} y1={y0} x2={cx + cw} y2={y0 + bodyH} stroke={MUTED} strokeWidth={fs / 18} />
+              <line x1={cx + cw} y1={y0} x2={cx} y2={y0 + bodyH} stroke={MUTED} strokeWidth={fs / 18} />
+              <text x={cx + cw / 2} y={y0 + bodyH / 2} fontSize={fs * 0.7} fill={INK} textAnchor="middle" dominantBaseline="middle"
+                transform={`rotate(-90 ${cx + cw / 2} ${y0 + bodyH / 2})`}>
+                corner — no door
+              </text>
+            </g>
+          );
+        })}
         {Array.from({ length: modules }, (_, k) => {
-          const x = k * modW;
+          const x = cl + k * modW;
           const isDrawers = before + k < drawerModules;
           const drawersHere = isDrawers ? Math.min(3, gr.drawers - (before + k) * 3) : 0;
           if (view === "inside") {
@@ -374,7 +394,7 @@ function WallElevation({
           }
           return (
             <g key={k}>
-              {k > 0 && <line x1={x} y1={y0} x2={x} y2={y0 + bodyH} stroke={INK} strokeWidth={fs / 10} />}
+              {(k > 0 || cl > 0) && <line x1={x} y1={y0} x2={x} y2={y0 + bodyH} stroke={INK} strokeWidth={fs / 10} />}
               {isDrawers
                 ? Array.from({ length: drawersHere }, (_, d) => {
                     const dh = bodyH / drawersHere;
@@ -474,6 +494,21 @@ function Dim({ x1, y1, x2, y2, fs, text, vertical, right }: {
       </text>
     </g>
   );
+}
+
+/**
+ * Which end of a wall meets a corner, as seen standing in the kitchen facing
+ * that wall. An L runs along wall A with wall B on the left; a U has wall A on
+ * the left, B across the back and C on the right.
+ */
+function cornerEnds(shape: EstimateInput["bottom"]["shape"], wall: number) {
+  if (shape === "L") return wall === 0 ? { left: true, right: false } : { left: false, right: true };
+  if (shape === "U") {
+    if (wall === 0) return { left: false, right: true };
+    if (wall === 1) return { left: true, right: true };
+    return { left: true, right: false };
+  }
+  return { left: false, right: false };
 }
 
 /* ─────────────── cutting layout: one board ─────────────── */

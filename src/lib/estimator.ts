@@ -96,6 +96,8 @@ export interface GroupResult {
   corners: number;
   length_in: number;
   modules: number;
+  /** modules hidden in the corners of an L or U: blocked by the other run, so no doors */
+  blind_modules: number;
   shelves: number;
   doors: number;
   drawers: number;
@@ -164,10 +166,14 @@ export function toInches(v: number, unit: LengthUnit) {
 
 export const inchesToFt = (inches: number) => inches / 12;
 
-/** Doors left blank default to two per 2ft module — two 12in doors. */
-export function frontCount(front: Front, modules: number) {
+/**
+ * Doors left blank default to two per 2ft module — two 12in doors — except in
+ * the corners of an L or U, where the other run blocks the front and no door
+ * can open.
+ */
+export function frontCount(front: Front, modules: number, blindModules = 0) {
   if (front.count !== null && front.count !== undefined && !Number.isNaN(front.count)) return Math.max(0, front.count);
-  return front.kind === "door" ? Math.ceil(modules * 2) : 0;
+  return front.kind === "door" ? Math.max(0, Math.ceil((modules - blindModules) * 2 - 1e-9)) : 0;
 }
 
 export function estimate(
@@ -222,6 +228,8 @@ export function estimate(
     const moduleLen = g === "bottom" ? settings.bottom_module_in : settings.top_module_in;
     const modules = moduleLen > 0 ? length / moduleLen : 0;
     if (modules <= 0) continue;
+    // each corner leaves one cabinet-depth of run with its front blocked
+    const blind = moduleLen > 0 ? Math.min(modules, (corners * depth) / moduleLen) : 0;
 
     for (const p of parts.filter((x) => x.cabinet === g)) {
       addPart(g, "Carcass", p, modules * (p.per_shelf ? gi.shelves : 1));
@@ -230,7 +238,7 @@ export function estimate(
     let doors = 0;
     let drawers = 0;
     for (const f of gi.fronts) {
-      const n = frontCount(f, modules);
+      const n = frontCount(f, modules, blind);
       if (!n) continue;
       if (f.kind === "door") doors += n;
       else drawers += n;
@@ -241,7 +249,7 @@ export function estimate(
     }
 
     groups.push({
-      group: g, shape: gi.shape, runs_in: runs, corners, length_in: length, modules,
+      group: g, shape: gi.shape, runs_in: runs, corners, length_in: length, modules, blind_modules: blind,
       shelves: gi.shelves, doors, drawers, cost: 0, price: 0,
     });
   }

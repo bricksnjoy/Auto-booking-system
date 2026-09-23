@@ -99,6 +99,7 @@ export function Estimator({
         {(["bottom", "top"] as Group[]).map((g) => (
           <GroupEditor key={g} group={g} value={inp[g]} unit={inp.unit}
             modules={result.groups.find((x) => x.group === g)?.modules ?? 0}
+            blind={result.groups.find((x) => x.group === g)?.blind_modules ?? 0}
             onChange={(patch) => setGroup(g, patch)} />
         ))}
 
@@ -268,12 +269,15 @@ function GroupEditor({
   value,
   unit,
   modules,
+  blind,
   onChange,
 }: {
   group: Group;
   value: GroupInput;
   unit: LengthUnit;
   modules: number;
+  /** modules in the corners, which get no doors */
+  blind: number;
   onChange: (patch: Partial<GroupInput>) => void;
 }) {
   const walls = SHAPE_WALLS[value.shape];
@@ -341,7 +345,7 @@ function GroupEditor({
                     </td>
                     <td className="py-1 pr-2">
                       <input type="number" min="0" step="1" className={small} aria-label="How many"
-                        value={f.count ?? ""} placeholder={f.kind === "door" ? `${frontCount(f, modules)} (2 per module)` : "0"}
+                        value={f.count ?? ""} placeholder={f.kind === "door" ? `${frontCount(f, modules, blind)} (2 per module${blind ? ", none in corners" : ""})` : "0"}
                         onChange={(e) => setFront(i, { count: e.target.value === "" ? null : Number(e.target.value) })} />
                     </td>
                     <td className="py-1 pr-2">
