@@ -345,8 +345,8 @@ function WallElevation({
             return (
               <g key={`corner-${cx}`}>
                 <rect x={cx} y={y0} width={cw} height={bodyH} fill={FILL_INSIDE} stroke={INK} strokeWidth={fs / 10} />
-                <rect x={cx} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                <rect x={cx + cw - PANEL} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                {/* the corner cabinet closes the run on its outer side; its inner side is shared */}
+                <rect x={cx === 0 ? cx : cx + cw - PANEL} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
                 <rect x={cx + PANEL} y={y0 + bodyH - PANEL} width={cw - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
                 {Array.from({ length: shelves }, (_, sIdx) => {
                   const sy = y0 + (bodyH * (sIdx + 1)) / (shelves + 1);
@@ -375,9 +375,11 @@ function WallElevation({
           if (view === "inside") {
             return (
               <g key={k}>
-                {/* the two side panels and the bottom panel of this module */}
-                <rect x={x} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                <rect x={x + modW - PANEL} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                {/* neighbours share a side panel: one at each joint, and one to close the run */}
+                <rect x={k === 0 && !cl ? x : x - PANEL / 2} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                {k === modules - 1 && (
+                  <rect x={cr ? x + modW - PANEL / 2 : x + modW - PANEL} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                )}
                 <rect x={x + PANEL} y={y0 + bodyH - PANEL} width={modW - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
                 <rect x={x + PANEL} y={y0} width={modW - PANEL * 2} height={g === "top" ? PANEL : 3} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
                 {isDrawers

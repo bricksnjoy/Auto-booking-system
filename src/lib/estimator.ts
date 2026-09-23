@@ -35,6 +35,8 @@ export interface Part {
   front_panel: boolean;
   /** cut to the length of each wall run, like a worktop; height_in is its depth */
   along_wall?: boolean;
+  /** a side shared by neighbouring cabinets: one per cabinet, plus one to close each run */
+  shared_side?: boolean;
 }
 
 export interface Settings {
@@ -265,12 +267,15 @@ export function estimate(
     // each corner leaves one cabinet-depth of run with its front blocked
     const blind = moduleLen > 0 ? Math.min(modules, (corners * depth) / moduleLen) : 0;
 
+    // each separate run of cabinets along a wall is closed by one extra side panel
+    const strips = wallStrips(gi.shape, runs, depth);
+    const runsCount = strips.filter((l) => l > 0).length || 1;
     for (const p of parts.filter((x) => x.cabinet === g && !x.along_wall)) {
-      addPart(g, "Carcass", p, modules * (p.per_shelf ? gi.shelves : 1));
+      const times = p.shared_side ? modules + runsCount : modules * (p.per_shelf ? gi.shelves : 1);
+      addPart(g, "Carcass", p, times);
     }
 
     // worktops run the length of each wall, in as few pieces as the sheet allows
-    const strips = wallStrips(gi.shape, runs, depth);
     for (const p of parts.filter((x) => x.cabinet === g && x.along_wall)) {
       const m = mat.get(p.material_id);
       const longest = Math.max(Number(m?.length_ft) || 0, Number(m?.width_ft) || 0) * 12;

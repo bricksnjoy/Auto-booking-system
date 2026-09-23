@@ -171,7 +171,8 @@ export function RecipeCard({
             <th className={th}>Part</th><th className={th}>Made of</th>
             <th className={th}>Width (in)</th><th className={th}>Height (in)</th><th className={th}>Qty</th>
             <th className={th}>{isFront ? "Front size" : "Per shelf"}</th>
-            {!isFront && <th className={th}>Along wall</th>}<th />
+            {!isFront && <th className={th}>Along wall</th>}
+            {!isFront && <th className={th}>Shared side</th>}<th />
           </tr>
         </thead>
         <tbody>
@@ -244,6 +245,13 @@ function PartRow({ p, cabinet, materials }: { p?: Part; cabinet: Part["cabinet"]
           <input form={formId} type="checkbox" name="along_wall" checked={along} aria-label="Cut to the length of the wall"
             title="Cut to the length of each wall, in as few pieces as the sheet allows — like a worktop"
             onChange={(e) => { setAlong(e.target.checked); touch(); }} className="h-4 w-4 accent-[var(--brand)]" />
+        </td>
+      )}
+      {!isFront && (
+        <td className="px-2 py-2">
+          <input form={formId} type="checkbox" name="shared_side" defaultChecked={p?.shared_side ?? false} aria-label="Shared by neighbouring cabinets"
+            title="One panel between neighbouring cabinets, plus one at each end of a run — not two per cabinet"
+            onChange={touch} className="h-4 w-4 accent-[var(--brand)]" />
         </td>
       )}
       <td className="whitespace-nowrap px-2 py-1.5 text-right">

@@ -90,6 +90,7 @@ export async function savePart(_prev: unknown, fd: FormData): Promise<EstimatorR
     width_in: frontPanel || alongWall ? null : num(fd, "width_in"),
     height_in: frontPanel ? null : num(fd, "height_in"),
     along_wall: alongWall,
+    shared_side: fd.get("shared_side") === "on",
     per_shelf: fd.get("per_shelf") === "on",
     front_panel: frontPanel,
   };

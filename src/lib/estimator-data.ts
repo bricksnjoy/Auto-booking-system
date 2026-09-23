@@ -31,6 +31,7 @@ export async function estimatorData(supabase: Awaited<ReturnType<typeof createCl
     per_shelf: x.per_shelf,
     front_panel: x.front_panel,
     along_wall: x.along_wall,
+    shared_side: x.shared_side,
   }));
   const settings: Settings = {
     bottom_module_in: Number(s?.bottom_module_in ?? 24),
