@@ -340,6 +340,22 @@ function WallElevation({
         ))}
         {[cl ? [0, cl] : null, cr ? [len - cr, cr] : null].filter(Boolean).map((c) => {
           const [cx, cw] = c as number[];
+          if (view === "inside") {
+            // no door, but still shelves inside — reached through the cabinet beside it
+            return (
+              <g key={`corner-${cx}`}>
+                <rect x={cx} y={y0} width={cw} height={bodyH} fill={FILL_INSIDE} stroke={INK} strokeWidth={fs / 10} />
+                <rect x={cx} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                <rect x={cx + cw - PANEL} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                <rect x={cx + PANEL} y={y0 + bodyH - PANEL} width={cw - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                {Array.from({ length: shelves }, (_, sIdx) => {
+                  const sy = y0 + (bodyH * (sIdx + 1)) / (shelves + 1);
+                  return <rect key={sIdx} x={cx + PANEL} y={sy} width={cw - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />;
+                })}
+                <text x={cx + cw / 2} y={y0 + bodyH * 0.18} fontSize={fs * 0.6} fill={MUTED} textAnchor="middle">corner</text>
+              </g>
+            );
+          }
           return (
             <g key={`corner-${cx}`}>
               <rect x={cx} y={y0} width={cw} height={bodyH} fill="#eceff3" stroke={INK} strokeWidth={fs / 10} />
