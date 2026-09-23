@@ -34,12 +34,14 @@ export function InvestmentsPanel({
   rows,
   directory,
   availableCapital,
+  locked = false,
 }: {
   projectId: string;
   rows: InvestmentRow[];
   directory: DirectoryEntry[];
   /** company capital not yet reinvested, for the reinvestment flow */
   availableCapital: number;
+  locked?: boolean;
 }) {
   const [mode, setMode] = useState<null | "investor" | "reinvest">(null);
 
@@ -56,6 +58,7 @@ export function InvestmentsPanel({
             : "Who put money into this project"
         }
         action={
+          locked ? undefined : (
           <div className="flex gap-3">
             <button type="button" onClick={() => setMode("reinvest")}
               className="text-xs font-medium text-[var(--brand)] hover:underline">
@@ -66,6 +69,7 @@ export function InvestmentsPanel({
               + Add investor
             </button>
           </div>
+          )
         }
       />
 
@@ -117,10 +121,12 @@ export function InvestmentsPanel({
                   {invested > 0 ? `${((num(r.amount) / invested) * 100).toFixed(1)}%` : "—"}
                 </Td>
                 <Td right>
-                  <button type="button" onClick={() => deleteInvestment(r.id, projectId)}
-                    className="text-xs text-[var(--muted)] hover:text-red-700">
-                    Remove
-                  </button>
+                  {!locked && (
+                    <button type="button" onClick={() => deleteInvestment(r.id, projectId)}
+                      className="text-xs text-[var(--muted)] hover:text-red-700">
+                      Remove
+                    </button>
+                  )}
                 </Td>
               </tr>
             ))}

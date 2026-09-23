@@ -168,7 +168,7 @@ export default async function CapitalPoolPage() {
                     <Td className="text-xs">{date(e.entry_date)}</Td>
                     <Td className="font-medium">{m?.name ?? "—"}</Td>
                     <Td className="text-xs text-[var(--muted)]">
-                      {ENTRY_LABEL[e.entry_type] ?? e.entry_type}
+                      {e.origin === "salary" ? "Salary" : ENTRY_LABEL[e.entry_type] ?? e.entry_type}
                       {e.note ? ` · ${e.note}` : ""}
                     </Td>
                     <Td className="text-xs">
@@ -179,7 +179,13 @@ export default async function CapitalPoolPage() {
                       ) : "—"}
                     </Td>
                     <Td right className={num(e.amount) < 0 ? "text-red-700" : ""}>{money(num(e.amount))}</Td>
-                    <Td right>{e.origin === "manual" && <RemoveEntry id={e.id} />}</Td>
+                    <Td right>
+                      {e.origin === "manual" ? (
+                        <RemoveEntry id={e.id} />
+                      ) : e.origin === "salary" ? (
+                        <Link href="/salaries" className="text-xs text-[var(--muted)] hover:underline">salaries</Link>
+                      ) : null}
+                    </Td>
                   </tr>
                 );
               })}

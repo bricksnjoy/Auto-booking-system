@@ -39,6 +39,7 @@ export function BillsPanel({
   defaultActivityNo,
   autoReadOn,
   gstRegistered,
+  locked = false,
 }: {
   projectId: string;
   rows: BillRow[];
@@ -49,6 +50,8 @@ export function BillsPanel({
   autoReadOn: boolean;
   /** an activity number only means something once GST is registered */
   gstRegistered: boolean;
+  /** completed and paid: shown, but no longer changeable */
+  locked?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [lightbox, setLightbox] = useState<BillRow | null>(null);
@@ -63,10 +66,12 @@ export function BillsPanel({
           title="Bills"
           subtitle={`${rows.length} bills · ${money(total)} — this is the project's EXP`}
           action={
-            <button type="button" onClick={() => setOpen(true)}
-              className="text-xs font-medium text-[var(--brand)] hover:underline">
-              + Add bill
-            </button>
+            locked ? undefined : (
+              <button type="button" onClick={() => setOpen(true)}
+                className="text-xs font-medium text-[var(--brand)] hover:underline">
+                + Add bill
+              </button>
+            )
           }
         />
 
@@ -184,14 +189,18 @@ export function BillsPanel({
                       )}
                     </Td>
                     <Td right>
-                      <button type="button" onClick={() => setEditing(b.id)}
-                        className="text-xs text-[var(--muted)] hover:text-[var(--brand)] hover:underline">
-                        Edit
-                      </button>
-                      <button type="button" onClick={() => deleteBill(b.id, projectId)}
-                        className="ml-2 text-xs text-[var(--muted)] hover:text-red-700">
-                        Remove
-                      </button>
+                      {!locked && (
+                        <>
+                          <button type="button" onClick={() => setEditing(b.id)}
+                            className="text-xs text-[var(--muted)] hover:text-[var(--brand)] hover:underline">
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => deleteBill(b.id, projectId)}
+                            className="ml-2 text-xs text-[var(--muted)] hover:text-red-700">
+                            Remove
+                          </button>
+                        </>
+                      )}
                     </Td>
                   </tr>
                 ),

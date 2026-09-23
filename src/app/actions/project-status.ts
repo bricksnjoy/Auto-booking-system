@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isLocked, LOCKED } from "@/lib/project-lock";
 
 export type StatusResult = { error?: string; ok?: boolean };
 
@@ -22,6 +23,7 @@ const refresh = (projectId: string) => {
  */
 export async function markCompleted(_prev: unknown, fd: FormData): Promise<StatusResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -160,6 +162,8 @@ export async function markPaymentReceived(_prev: unknown, fd: FormData): Promise
     share_kind: a.share_kind as string,
     pct_snapshot: a.pct_snapshot as number | null,
     investor_id: (a.investor_id as string | null) ?? null,
+    pool_member_id: (a.pool_member_id as string | null) ?? null,
+    disposition: (a.disposition as string) ?? "withdraw",
     entry_type: "settlement" as const,
     // settlements are negative, so a balance stays a plain sum
     amount: -Number(a.amount ?? 0),
@@ -249,6 +253,7 @@ export async function unmarkPaymentReceived(_prev: unknown, fd: FormData): Promi
  */
 export async function setShareDisposition(_prev: unknown, fd: FormData): Promise<StatusResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const projectId = String(fd.get("project_id") ?? "");
   const shareName = String(fd.get("share_name") ?? "");
   const disposition = String(fd.get("disposition") ?? "");
@@ -257,44 +262,16 @@ export async function setShareDisposition(_prev: unknown, fd: FormData): Promise
     return { error: "Choose take or keep." };
   }
 
-  const { data: accrual, error } = await supabase
+  // the choice is made between completion and payment; a paid project is
+  // locked above, so it never has to move money already in the pool
+  const { error } = await supabase
     .from("internal_account_entries")
     .update({ disposition })
     .eq("project_id", projectId)
     .eq("share_name", shareName)
-    .eq("entry_type", "accrual")
-    .select("pool_member_id, amount")
-    .maybeSingle();
+    .eq("entry_type", "accrual");
   if (error) return { error: error.message };
 
-  // if the client has already paid, the choice moves real money: keeping puts
-  // the share into the pool under this director, taking removes it again
-  const { data: project } = await supabase
-    .from("projects")
-    .select("payment_received_at")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (project?.payment_received_at && accrual?.pool_member_id) {
-    await supabase
-      .from("capital_pool_entries")
-      .delete()
-      .eq("project_id", projectId)
-      .eq("member_id", accrual.pool_member_id)
-      .eq("origin", "payment_received")
-      .eq("entry_type", "contribution");
-    if (disposition === "retain") {
-      await supabase.from("capital_pool_entries").insert({
-        member_id: accrual.pool_member_id,
-        entry_type: "contribution",
-        amount: Number(accrual.amount ?? 0),
-        project_id: projectId,
-        origin: "payment_received",
-        entry_date: String(project.payment_received_at).slice(0, 10),
-        note: "Director kept their share in the pool",
-      });
-    }
-    revalidatePath("/capital-pool");
-  }
 
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/internal");

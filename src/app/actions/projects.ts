@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isLocked, LOCKED } from "@/lib/project-lock";
 
 export type Result = { error?: string; ok?: boolean };
 
@@ -114,6 +115,7 @@ export async function createProject(_prev: unknown, fd: FormData): Promise<Resul
 
 export async function updateProject(_prev: unknown, fd: FormData): Promise<Result> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("id") ?? ""))) return { error: LOCKED };
   const id = String(fd.get("id") ?? "");
   if (!id) return { error: "Missing project id." };
 

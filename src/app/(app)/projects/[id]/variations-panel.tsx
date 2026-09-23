@@ -18,9 +18,11 @@ export interface VariationRow extends VariationValues {
 export function VariationsPanel({
   projectId,
   rows,
+  locked = false,
 }: {
   projectId: string;
   rows: VariationRow[];
+  locked?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<VariationRow | null>(null);
@@ -38,10 +40,12 @@ export function VariationsPanel({
             : "Extra work agreed after the contract"
         }
         action={
-          <button type="button" onClick={() => setAdding(true)}
-            className="text-xs font-medium text-[var(--brand)] hover:underline">
-            + Add variation
-          </button>
+          locked ? undefined : (
+            <button type="button" onClick={() => setAdding(true)}
+              className="text-xs font-medium text-[var(--brand)] hover:underline">
+              + Add variation
+            </button>
+          )
         }
       />
 
@@ -64,14 +68,18 @@ export function VariationsPanel({
                 <Td right className="text-xs">{num(r.time_impact_days) || "—"}</Td>
                 <Td right className="text-xs">{date(r.raised_date)}</Td>
                 <Td right>
-                  <button type="button" onClick={() => setEditing(r)}
-                    className="text-xs text-[var(--muted)] hover:text-[var(--brand)] hover:underline">
-                    Edit
-                  </button>
-                  <button type="button" onClick={() => deleteVariation(r.id, projectId)}
-                    className="ml-2 text-xs text-[var(--muted)] hover:text-red-700">
-                    Remove
-                  </button>
+                  {!locked && (
+                    <>
+                      <button type="button" onClick={() => setEditing(r)}
+                        className="text-xs text-[var(--muted)] hover:text-[var(--brand)] hover:underline">
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => deleteVariation(r.id, projectId)}
+                        className="ml-2 text-xs text-[var(--muted)] hover:text-red-700">
+                        Remove
+                      </button>
+                    </>
+                  )}
                 </Td>
               </tr>
             ))}

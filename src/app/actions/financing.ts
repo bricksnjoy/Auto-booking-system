@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isLocked, projectOf, LOCKED } from "@/lib/project-lock";
 
 export type FinancingResult = { error?: string; ok?: boolean; id?: string };
 
@@ -28,6 +29,7 @@ const refresh = (projectId: string) => {
  */
 export async function addFinancingSource(_prev: unknown, fd: FormData): Promise<FinancingResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -91,6 +93,7 @@ export async function addFinancingSource(_prev: unknown, fd: FormData): Promise<
 
 export async function updateFinancingSource(_prev: unknown, fd: FormData): Promise<FinancingResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, await projectOf(supabase, "project_financing_sources", String(fd.get("id") ?? "")))) return { error: LOCKED };
   const id = String(fd.get("id") ?? "");
   const projectId = String(fd.get("project_id") ?? "");
   if (!id) return { error: "Missing source." };
@@ -137,6 +140,7 @@ export async function updateFinancingSource(_prev: unknown, fd: FormData): Promi
 
 export async function deleteFinancingSource(id: string, projectId: string): Promise<void> {
   const supabase = await createClient();
+  if (await isLocked(supabase, await projectOf(supabase, "project_financing_sources", id))) return;
   await supabase.from("project_financing_sources").delete().eq("id", id);
   refresh(projectId);
 }
@@ -144,6 +148,7 @@ export async function deleteFinancingSource(id: string, projectId: string): Prom
 /** The share of profit that repays financiers, set per project. */
 export async function setRepayPct(_prev: unknown, fd: FormData): Promise<FinancingResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const projectId = String(fd.get("project_id") ?? "");
   if (!projectId) return { error: "Missing project." };
   const pct = number(fd, "financing_repay_pct");

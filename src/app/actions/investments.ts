@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isLocked, projectOf, LOCKED } from "@/lib/project-lock";
 import { poolPosition, ratioSnapshot } from "@/lib/pool";
 
 export type InvestmentResult = { error?: string; ok?: boolean };
@@ -31,6 +32,7 @@ const refresh = (projectId: string) => {
  */
 export async function addInvestment(_prev: unknown, fd: FormData): Promise<InvestmentResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -106,6 +108,7 @@ export async function addInvestment(_prev: unknown, fd: FormData): Promise<Inves
  */
 export async function addReinvestment(_prev: unknown, fd: FormData): Promise<InvestmentResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -160,6 +163,7 @@ export async function addReinvestment(_prev: unknown, fd: FormData): Promise<Inv
 
 export async function deleteInvestment(id: string, projectId: string): Promise<void> {
   const supabase = await createClient();
+  if (await isLocked(supabase, await projectOf(supabase, "project_financing_sources", id))) return;
   await supabase.from("project_financing_sources").delete().eq("id", id);
   refresh(projectId);
 }

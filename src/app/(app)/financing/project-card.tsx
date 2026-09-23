@@ -17,6 +17,8 @@ export interface FinancingProject {
   profit: number;
   repay_pct: number;
   sources: FinancingSourceInput[];
+  /** completed and paid: shown, not changeable */
+  locked?: boolean;
 }
 
 export function ProjectFinancingCard({ project }: { project: FinancingProject }) {
@@ -46,10 +48,14 @@ export function ProjectFinancingCard({ project }: { project: FinancingProject })
             )}
           </p>
         </div>
-        <button type="button" onClick={() => setAdding(true)}
-          className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--hover)]">
-          + Add source
-        </button>
+        {project.locked ? (
+          <span className="text-xs text-[var(--muted)]">Locked — completed and paid</span>
+        ) : (
+          <button type="button" onClick={() => setAdding(true)}
+            className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--hover)]">
+            + Add source
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-x-8 gap-y-2 border-b border-[var(--border)] px-5 py-3 text-sm">
@@ -60,7 +66,11 @@ export function ProjectFinancingCard({ project }: { project: FinancingProject })
         </span>
         <span className="flex items-center gap-2">
           <span className="text-[var(--muted)]">Profit to repayment</span>
-          {editingPct ? (
+          {project.locked ? (
+            <span className="font-medium">
+              {num(project.repay_pct).toFixed(project.repay_pct % 1 ? 2 : 0)}%
+            </span>
+          ) : editingPct ? (
             <form action={pctAction} className="flex items-center gap-1">
               <input type="hidden" name="project_id" value={project.id} />
               <input name="financing_repay_pct" type="number" step="0.001" min="0" max="100"
@@ -99,6 +109,7 @@ export function ProjectFinancingCard({ project }: { project: FinancingProject })
           <tbody>
             {f.sources.map((s) => (
               <SourceRows key={s.id} source={s} projectId={project.id}
+                locked={project.locked}
                 onEdit={
                   s.source_type === "investor"
                     ? undefined
@@ -139,10 +150,12 @@ function SourceRows({
   source,
   projectId,
   onEdit,
+  locked = false,
 }: {
   source: ReturnType<typeof computeFinancing>["sources"][number];
   projectId: string;
   onEdit?: () => void;
+  locked?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const isPool = source.source_type === "capital_pool";
@@ -172,6 +185,7 @@ function SourceRows({
         <Td right className="text-[var(--muted)]">{(source.share * 100).toFixed(2)}%</Td>
         <Td right>
           {money(source.repayment)}
+          {!locked && (
           <span className="ml-2 inline-flex gap-1.5 align-middle text-xs">
             {onEdit && (
               <button type="button" onClick={onEdit}
@@ -180,6 +194,7 @@ function SourceRows({
             <button type="button" onClick={() => deleteFinancingSource(source.id, projectId)}
               className="text-[var(--muted)] hover:text-red-700">Remove</button>
           </span>
+          )}
         </Td>
       </tr>
       {isPool && open &&

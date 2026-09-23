@@ -141,6 +141,9 @@ export default async function ProjectDetailPage({
     dispByShare.set(d.share_name as string, (d.disposition as "withdraw" | "retain") ?? "withdraw");
   }
   const completed = Boolean(project.completed_at);
+  // finished and paid for: the profit is shared out and the pool credited, so
+  // nothing about the project may change underneath those figures
+  const locked = completed && Boolean(project.payment_received_at);
   const shares: ShareLine[] = (splits ?? []).map((s) => ({
     share_name: s.share_name,
     share_kind: s.share_kind,
@@ -183,12 +186,14 @@ export default async function ProjectDetailPage({
         action={
           <div className="flex items-center gap-3">
             <Badge value={p.status} />
-            <Link
-              href={`/projects/${id}/edit`}
-              className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)]"
-            >
-              Edit project
-            </Link>
+            {!locked && (
+              <Link
+                href={`/projects/${id}/edit`}
+                className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)]"
+              >
+                Edit project
+              </Link>
+            )}
           </div>
         }
       />
@@ -200,6 +205,23 @@ export default async function ProjectDetailPage({
         paymentAmount={project.payment_received_amount ?? null}
         expected={num(p.value) + num(p.variation)}
       />
+
+      {locked && (
+        <p className="mb-6 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--hover)] px-4 py-3 text-sm">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+            strokeWidth="1.6" aria-hidden="true" className="shrink-0 text-[var(--muted)]">
+            <rect x="3" y="7" width="10" height="7" rx="1.5" />
+            <path d="M5.5 7V5a2.5 2.5 0 015 0v2" />
+          </svg>
+          <span>
+            <span className="font-medium">Locked.</span>{" "}
+            <span className="text-[var(--muted)]">
+              This project is completed and paid — its profit has been shared out, so bills,
+              variations and investments can no longer be changed. Undo the payment above to reopen it.
+            </span>
+          </span>
+        </p>
+      )}
 
       <div className={`grid gap-4 sm:grid-cols-2 ${
         company?.gst_registered ? "xl:grid-cols-5" : "xl:grid-cols-4"
@@ -252,7 +274,7 @@ export default async function ProjectDetailPage({
           )}
         </Card>
 
-        <ProfitShareCard projectId={id} shares={shares} completed={completed} />
+        <ProfitShareCard projectId={id} shares={shares} completed={completed} locked={locked} />
 
         <Card>
           <CardHeader title="Programme" subtitle="Phases and progress" />
@@ -303,11 +325,12 @@ export default async function ProjectDetailPage({
         </Card>
 
         <div className="xl:col-span-2">
-          <VariationsPanel projectId={id} rows={variationRows} />
+          <VariationsPanel projectId={id} rows={variationRows} locked={locked} />
         </div>
 
         <div className="xl:col-span-2">
           <InvestmentsPanel
+            locked={locked}
             projectId={id}
             rows={investmentRows}
             directory={directory ?? []}
@@ -317,6 +340,7 @@ export default async function ProjectDetailPage({
 
         <div className="xl:col-span-2">
           <BillsPanel
+            locked={locked}
             projectId={id}
             rows={billRows}
             categories={categories ?? []}

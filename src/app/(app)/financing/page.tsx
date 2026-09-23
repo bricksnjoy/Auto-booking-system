@@ -11,7 +11,7 @@ export default async function FinancingPage() {
   const [{ data: pnl }, { data: projects }, { data: sources }, { data: pool }] =
     await Promise.all([
       supabase.from("project_pnl").select("id, code, project_name, exp, profit").order("code"),
-      supabase.from("projects").select("id, financing_repay_pct"),
+      supabase.from("projects").select("id, financing_repay_pct, completed_at, payment_received_at"),
       supabase
         .from("project_financing_sources")
         .select("id, project_id, name, source_type, amount, sort_order")
@@ -23,7 +23,11 @@ export default async function FinancingPage() {
     ]);
 
   const repayByProject = new Map<string, number>();
-  for (const p of projects ?? []) repayByProject.set(p.id, num(p.financing_repay_pct));
+  const lockedProjects = new Set<string>();
+  for (const p of projects ?? []) {
+    repayByProject.set(p.id, num(p.financing_repay_pct));
+    if (p.completed_at && p.payment_received_at) lockedProjects.add(p.id);
+  }
 
   const poolBySource = new Map<string, { contributor_name: string; ratio: number }[]>();
   for (const c of pool ?? []) {
@@ -53,6 +57,7 @@ export default async function FinancingPage() {
     profit: num(p.profit),
     repay_pct: repayByProject.get(p.id) ?? 0,
     sources: sourcesByProject.get(p.id) ?? [],
+    locked: lockedProjects.has(p.id),
   }));
 
   // company-wide totals across every project that is actually financed

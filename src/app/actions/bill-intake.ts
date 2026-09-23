@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isLocked, LOCKED } from "@/lib/project-lock";
 import { extractBill, extractionAvailable } from "@/lib/extract-bill";
 import type { VendorCandidate, VendorConfirm } from "./project-items";
 
@@ -152,6 +153,7 @@ const t = (fd: FormData, k: string) => {
  */
 export async function saveBills(_prev: unknown, fd: FormData): Promise<SaveResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const {
     data: { user },
   } = await supabase.auth.getUser();

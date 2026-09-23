@@ -16,8 +16,10 @@ interface Entry {
   entry_date: string;
   source: "completed" | "payment_received" | "manual";
   disposition: "withdraw" | "retain";
+  pool_member_id: string | null;
   note: string | null;
   projects: { id: string; name: string; code: string } | null;
+  capital_pool_members: { name: string } | null;
 }
 
 export default async function InternalAccountPage() {
@@ -25,7 +27,7 @@ export default async function InternalAccountPage() {
   const [{ data: entryData }, { data: awaiting }] = await Promise.all([
     supabase
       .from("internal_account_entries")
-      .select("*, projects(id, name, code)")
+      .select("*, projects(id, name, code), capital_pool_members(name)")
       .order("entry_date", { ascending: false })
       .order("created_at", { ascending: false }),
     supabase
@@ -46,15 +48,43 @@ export default async function InternalAccountPage() {
     .filter((e) => e.entry_type === "settlement")
     .reduce((s, e) => s - num(e.amount), 0);
 
-  // per share, so each person can see their own position
-  const byShare = new Map<string, { kind: Entry["share_kind"]; balance: number; accrued: number }>();
+  // One row per person, not per share name. A director earns in more than one
+  // way — their own percentage, their slice of the pool's profit — and listing
+  // those separately made the same person look like two or three people.
+  type Person = {
+    name: string;
+    company: boolean;
+    share: number;
+    pool: number;
+    investor: number;
+    balance: number;
+  };
+  const byPerson = new Map<string, Person>();
   for (const e of entries) {
-    const row = byShare.get(e.share_name) ?? { kind: e.share_kind, balance: 0, accrued: 0 };
+    const key = e.pool_member_id ?? `name:${e.share_name.toLowerCase()}`;
+    const name =
+      e.capital_pool_members?.name ??
+      (e.share_name === "Capital Pool" ? "Capital Pool (not split by member)" : e.share_name);
+    const row = byPerson.get(key) ?? {
+      name,
+      company: e.share_kind === "company",
+      share: 0,
+      pool: 0,
+      investor: 0,
+      balance: 0,
+    };
+    if (e.share_kind === "company") row.company = true;
     row.balance += num(e.amount);
-    if (e.entry_type === "accrual") row.accrued += num(e.amount);
-    byShare.set(e.share_name, row);
+    if (e.entry_type === "accrual") {
+      if (e.share_kind === "investors" && e.pool_member_id) row.pool += num(e.amount);
+      else if (e.share_kind === "investors") row.investor += num(e.amount);
+      else row.share += num(e.amount);
+    }
+    byPerson.set(key, row);
   }
-  const shares = [...byShare].sort((a, b) => b[1].balance - a[1].balance);
+  const people = [...byPerson.values()].sort(
+    (a, b) => b.share + b.pool + b.investor - (a.share + a.pool + a.investor),
+  );
 
   const oldest = awaiting?.reduce<string | null>(
     (o, p) => (!o || (p.completed_at && p.completed_at < o) ? p.completed_at : o),
@@ -96,29 +126,38 @@ export default async function InternalAccountPage() {
         money usually arrives months later — what is held in the bank is a separate figure.
       </p>
 
-      <div className="mb-6 grid gap-6 xl:grid-cols-2">
+      <div className="mb-6 grid gap-6">
         <Card>
-          <CardHeader title="Balances" subtitle="Owed to each share" />
-          {shares.length === 0 ? (
+          <CardHeader
+            title="Balances"
+            subtitle="Each person once — what they earned as a director, from the pool, and as an investor"
+          />
+          {people.length === 0 ? (
             <Empty message="Nothing accrued yet. Mark a project completed and its profit share lands here." />
           ) : (
             <Table>
               <thead>
-                <tr><Th>Share</Th><Th right>Accrued</Th><Th right>Outstanding</Th></tr>
+                <tr>
+                  <Th>Person</Th><Th right>Profit share</Th><Th right>From the pool</Th>
+                  <Th right>As investor</Th><Th right>Total earned</Th><Th right>Outstanding</Th>
+                </tr>
               </thead>
               <tbody>
-                {shares.map(([name, v]) => (
-                  <tr key={name} className="hover:bg-[var(--hover)]">
+                {people.map((v) => (
+                  <tr key={v.name} className="hover:bg-[var(--hover)]">
                     <Td className="font-medium">
-                      {name}
-                      {v.kind === "company" && (
+                      {v.name}
+                      {v.company && (
                         <span className="ml-2 rounded-full bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] font-normal text-[var(--brand)]">
-                          retained
+                          company
                         </span>
                       )}
                     </Td>
-                    <Td right className="text-[var(--muted)]">{money(v.accrued)}</Td>
-                    <Td right className={v.balance > 0 ? "font-medium text-amber-700" : ""}>
+                    <Td right className="text-[var(--muted)]">{v.share ? money(v.share) : "—"}</Td>
+                    <Td right className="text-[var(--muted)]">{v.pool ? money(v.pool) : "—"}</Td>
+                    <Td right className="text-[var(--muted)]">{v.investor ? money(v.investor) : "—"}</Td>
+                    <Td right className="font-medium">{money(v.share + v.pool + v.investor)}</Td>
+                    <Td right className={v.balance > 0.005 ? "font-medium text-amber-700" : ""}>
                       {money(v.balance)}
                     </Td>
                   </tr>
@@ -127,6 +166,9 @@ export default async function InternalAccountPage() {
               <tfoot>
                 <tr className="bg-[var(--hover)] font-semibold">
                   <Td>Total</Td>
+                  <Td right>{money(people.reduce((a, v) => a + v.share, 0))}</Td>
+                  <Td right>{money(people.reduce((a, v) => a + v.pool, 0))}</Td>
+                  <Td right>{money(people.reduce((a, v) => a + v.investor, 0))}</Td>
                   <Td right>{money(accrued)}</Td>
                   <Td right>{money(outstanding)}</Td>
                 </tr>

@@ -29,10 +29,13 @@ export function ProfitShareCard({
   projectId,
   shares,
   completed,
+  locked = false,
 }: {
   projectId: string;
   shares: ShareLine[];
   completed: boolean;
+  /** paid: each director's choice is final */
+  locked?: boolean;
 }) {
   const investors = shares.filter((s) => s.share_kind === "investors");
   const privateInvestors = investors.filter((s) => s.parent_share !== "Capital Pool");
@@ -134,7 +137,11 @@ export function ProfitShareCard({
                 <Td right>{money(s.share_amount)}</Td>
                 {completed && (
                   <Td right>
-                    {s.share_kind === "person" ? (
+                    {s.share_kind === "person" && locked ? (
+                      <span className={`text-xs ${s.disposition === "retain" ? "text-emerald-700" : "text-[var(--muted)]"}`}>
+                        {s.disposition === "retain" ? "kept in pool" : "taken"}
+                      </span>
+                    ) : s.share_kind === "person" ? (
                       <Election projectId={projectId} shareName={s.share_name}
                         current={s.disposition ?? "withdraw"} />
                     ) : (

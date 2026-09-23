@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isLocked, projectOf, LOCKED } from "@/lib/project-lock";
 import type { Result } from "./projects";
 
 const text = (fd: FormData, k: string) => {
@@ -25,6 +26,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 export async function addVariation(_prev: unknown, fd: FormData): Promise<Result> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const projectId = String(fd.get("project_id") ?? "");
   if (!projectId) return { error: "Missing project." };
 
@@ -63,6 +65,7 @@ export async function addVariation(_prev: unknown, fd: FormData): Promise<Result
 /** Reports its result, so a modal knows when to close. */
 export async function updateVariation(_prev: unknown, fd: FormData): Promise<Result> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const id = String(fd.get("id") ?? "");
   const projectId = String(fd.get("project_id") ?? "");
   if (!id) return { error: "Missing variation." };
@@ -91,6 +94,7 @@ export async function updateVariation(_prev: unknown, fd: FormData): Promise<Res
 
 export async function deleteVariation(id: string, projectId: string) {
   const supabase = await createClient();
+  if (await isLocked(supabase, await projectOf(supabase, "variations", id))) return;
   await supabase.from("variations").delete().eq("id", id);
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/pnl");
@@ -216,6 +220,7 @@ async function resolveVendor(
  */
 export async function addBill(_prev: unknown, fd: FormData): Promise<BillResult> {
   const supabase = await createClient();
+  if (await isLocked(supabase, String(fd.get("project_id") ?? ""))) return { error: LOCKED };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -289,6 +294,7 @@ export async function addBill(_prev: unknown, fd: FormData): Promise<BillResult>
 /** Reports its result, so a modal knows when to close. */
 export async function updateBill(fd: FormData): Promise<void> {
   const supabase = await createClient();
+  if (await isLocked(supabase, await projectOf(supabase, "bills", String(fd.get("id") ?? "")))) return;
   const id = String(fd.get("id") ?? "");
   const projectId = String(fd.get("project_id") ?? "");
   if (!id) return;
@@ -318,6 +324,7 @@ export async function updateBill(fd: FormData): Promise<void> {
 
 export async function deleteBill(id: string, projectId: string) {
   const supabase = await createClient();
+  if (await isLocked(supabase, await projectOf(supabase, "bills", id))) return;
   const { data: bill } = await supabase
     .from("bills")
     .select("attachment_path")
