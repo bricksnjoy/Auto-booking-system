@@ -87,7 +87,9 @@ export function PeopleTable({ rows, members }: { rows: PersonRow[]; members: Mem
             {shown.map((p) => (
               <tr key={p.id} className={`hover:bg-[var(--hover)] ${p.active ? "" : "opacity-50"}`}>
                 <Td className="font-medium">
-                  {p.name}
+                  <Link href={`/people/${p.id}`} className="hover:text-[var(--brand)] hover:underline">
+                    {p.name}
+                  </Link>
                   {p.title && <span className="block text-xs font-normal text-[var(--muted)]">{p.title}</span>}
                 </Td>
                 <Td>
