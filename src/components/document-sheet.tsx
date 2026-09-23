@@ -69,7 +69,7 @@ export function DocumentSheet({
   if (body.show_duration && data.duration) facts.push(["Duration :", data.duration]);
 
   return (
-    <div className="doc-sheet mx-auto flex min-h-[297mm] w-[210mm] max-w-full flex-col bg-white px-[14mm] pb-[12mm] pt-[12mm] font-[family-name:var(--font-poppins)] text-[10.5px] leading-snug text-[#1b2330] shadow-[0_2px_18px_rgba(13,27,42,0.12)]">
+    <div className="doc-sheet mx-auto flex min-h-[297mm] w-[210mm] max-w-full flex-col bg-white px-[calc(14mm+10px)] pb-[12mm] pt-[calc(12mm+10px)] font-[family-name:var(--font-poppins)] text-[10.5px] leading-snug text-[#1b2330] shadow-[0_2px_18px_rgba(13,27,42,0.12)]">
       {/* header: our mark on the left, what this is on the right */}
       <div className="flex items-start justify-between gap-6">
         <div className="w-40 text-center">
@@ -204,22 +204,26 @@ export function DocumentSheet({
       )}
 
       <div className="mt-6 flex items-end justify-between gap-6">
-        <div>
+        {/* signature on the left, the stamp overlapping it up to the right, the name centred beneath */}
+        <div className="pl-[6mm]">
           {(stampUrl || signatureUrl) && (
-            <div className="relative h-[34mm] w-[62mm]">
-              {stampUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={stampUrl} alt="Company stamp" className="absolute left-0 top-0 h-[34mm] w-[34mm] object-contain" />
-              )}
+            <div className="relative h-[36mm] w-[58mm]">
               {signatureUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={signatureUrl} alt="Signature"
-                  className="absolute bottom-[3mm] left-[22mm] h-[20mm] w-[38mm] object-contain" />
+                  className="absolute bottom-0 left-[2mm] z-10 h-[20mm] w-[34mm] object-contain object-left-bottom" />
+              )}
+              {stampUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={stampUrl} alt="Company stamp"
+                  className="absolute right-0 top-0 h-[30mm] w-[30mm] object-contain" />
               )}
             </div>
           )}
-          {signName && <p className="text-[11.5px]">{signName}</p>}
-          {signTitle && <p className="text-[11.5px]">{signTitle}</p>}
+          <div className="w-[40mm] text-center text-[11.5px] leading-tight">
+            {signName && <p>{signName}</p>}
+            {signTitle && <p>{signTitle}</p>}
+          </div>
         </div>
         {tail.show_client_signature && (
           <div className="w-56 text-[10px]">
