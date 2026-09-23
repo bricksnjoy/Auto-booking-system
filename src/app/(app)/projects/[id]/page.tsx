@@ -14,6 +14,7 @@ import { BillsPanel } from "./bills-panel";
 import { InvestmentsPanel, type InvestmentRow } from "./investments-panel";
 import { ProfitShareCard, type ShareLine } from "./profit-share-card";
 import { ProjectViews } from "./project-views";
+import { QuotationsPanel, type ProjectDoc } from "./quotations-panel";
 import { VIEW_COOKIE, type ProjectView } from "@/lib/project-view";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +54,8 @@ export default async function ProjectDetailPage({
     { data: poolSummary },
     { data: dispositions },
     { data: investorBalances },
+    { data: projectQuotes },
+    { data: projectInvoices },
   ] = await Promise.all([
     supabase.from("projects").select("*, clients(name)").eq("id", id).single(),
     supabase.from("project_phases").select("*").eq("project_id", id).order("sort_order"),
@@ -92,7 +95,39 @@ export default async function ProjectDetailPage({
       .from("investor_balances")
       .select("investor_id, paid_at")
       .eq("project_id", id),
+    supabase
+      .from("quotations")
+      .select("id, number, issue_date, status, title")
+      .eq("project_id", id)
+      .order("seq", { ascending: false }),
+    supabase
+      .from("invoices")
+      .select("id, number, issue_date, status, title, quotation_id")
+      .eq("project_id", id)
+      .order("seq"),
   ]);
+
+  // what each quotation and invoice comes to, with tax
+  const [{ data: qTotals }, { data: iTotals }] = await Promise.all([
+    projectQuotes?.length
+      ? supabase.from("quotation_totals").select("quotation_id, total").in("quotation_id", projectQuotes.map((q) => q.id))
+      : Promise.resolve({ data: [] as { quotation_id: string; total: number }[] }),
+    projectInvoices?.length
+      ? supabase.from("invoice_totals").select("invoice_id, total").in("invoice_id", projectInvoices.map((i) => i.id))
+      : Promise.resolve({ data: [] as { invoice_id: string; total: number }[] }),
+  ]);
+  const qTotal = new Map((qTotals ?? []).map((t) => [t.quotation_id, num(t.total)]));
+  const iTotal = new Map((iTotals ?? []).map((t) => [t.invoice_id, num(t.total)]));
+  const projectDocs: ProjectDoc[] = [
+    ...(projectQuotes ?? []).map((q) => ({
+      id: q.id, kind: "quotation" as const, number: q.number, issue_date: q.issue_date,
+      status: q.status, title: q.title, total: qTotal.get(q.id) ?? 0, parent: null,
+    })),
+    ...(projectInvoices ?? []).map((i) => ({
+      id: i.id, kind: "invoice" as const, number: i.number, issue_date: i.issue_date,
+      status: i.status, title: i.title, total: iTotal.get(i.id) ?? 0, parent: i.quotation_id,
+    })),
+  ];
 
   const paidAt = Object.fromEntries(
     (investorBalances ?? []).map((b) => [b.investor_id as string, (b.paid_at as string | null) ?? null]),
@@ -375,6 +410,13 @@ export default async function ProjectDetailPage({
             node: (
           <VariationsPanel projectId={id} rows={variationRows} locked={locked} />
         ),
+          },
+          quotations: {
+            title: "Quotations",
+            summary: projectQuotes?.length
+              ? `${projectQuotes.length} · ${projectQuotes.some((q) => q.status === "won") ? "won" : projectQuotes[0].status}`
+              : "None yet",
+            node: <QuotationsPanel projectId={id} docs={projectDocs} />,
           },
           programme: { title: "Programme", summary: "", node: (
         <Card>

@@ -35,6 +35,14 @@ export const NAV: NavGroup[] = [
     ],
   },
   {
+    group: "Sales",
+    defaultOpen: true,
+    items: [
+      { href: "/quotations", label: "Quotations", roles: MONEY },
+      { href: "/invoices", label: "Invoices", roles: MONEY },
+    ],
+  },
+  {
     group: "People",
     defaultOpen: true,
     items: [

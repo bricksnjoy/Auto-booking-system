@@ -10,6 +10,7 @@ export type SectionKey =
   | "investments"
   | "bills"
   | "variations"
+  | "quotations"
   | "programme"
   | "milestones";
 
@@ -21,7 +22,7 @@ export interface Section {
 }
 
 // the boxes, in the order they are laid out
-const BOX_ORDER: SectionKey[] = ["tasks", "cost", "profit", "investments", "bills", "variations"];
+const BOX_ORDER: SectionKey[] = ["tasks", "cost", "profit", "investments", "bills", "variations", "quotations"];
 
 /**
  * The project's sections, laid out either as the full page (classic) or as a
@@ -64,6 +65,7 @@ export function ProjectViews({
           {sections.profit.node}
           {sections.programme.node}
           {sections.milestones.node}
+          <div className="xl:col-span-2">{sections.quotations.node}</div>
           <div className="xl:col-span-2">{sections.variations.node}</div>
           <div className="xl:col-span-2">{sections.investments.node}</div>
           <div className="xl:col-span-2">{sections.bills.node}</div>
@@ -71,7 +73,7 @@ export function ProjectViews({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
             {BOX_ORDER.map((k) => {
               const s = sections[k];
               const active = openBox === k;
