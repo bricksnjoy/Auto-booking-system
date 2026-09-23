@@ -7,7 +7,8 @@ import {
   setQuotationStatus,
   type DocResult,
 } from "@/app/actions/documents";
-import { QUOTE_STATUSES, QUOTE_STATUS_LABEL, STATUS_TONE, addDays, round2, type QuoteStatus } from "@/lib/documents";
+import { QUOTE_STATUSES, QUOTE_STATUS_LABEL, STATUS_TONE, addDays, round2, type QuoteStatus, type SigningKit } from "@/lib/documents";
+import { SignerPicker } from "../quotation-form";
 import { money } from "@/lib/format";
 
 const input =
@@ -83,12 +84,19 @@ export function ConvertButton({
   invoiced,
   taxRate,
   templates,
+  kit,
+  signatoryId,
+  showStamp,
 }: {
   quotationId: string;
   subtotal: number;
   invoiced: number;
   taxRate: number;
   templates: InvoiceTemplateOption[];
+  kit: SigningKit;
+  /** the quotation's signer, offered first for its invoices */
+  signatoryId: string | null;
+  showStamp: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const remaining = round2(subtotal - invoiced);
@@ -103,7 +111,8 @@ export function ConvertButton({
       </button>
       {open && (
         <ConvertModal quotationId={quotationId} subtotal={subtotal} remaining={remaining} taxRate={taxRate}
-          templates={templates} onClose={() => setOpen(false)} />
+          templates={templates} kit={kit} signatoryId={signatoryId} showStamp={showStamp}
+          onClose={() => setOpen(false)} />
       )}
     </>
   );
@@ -115,6 +124,9 @@ function ConvertModal({
   remaining,
   taxRate,
   templates,
+  kit,
+  signatoryId,
+  showStamp,
   onClose,
 }: {
   quotationId: string;
@@ -122,8 +134,13 @@ function ConvertModal({
   remaining: number;
   taxRate: number;
   templates: InvoiceTemplateOption[];
+  kit: SigningKit;
+  signatoryId: string | null;
+  showStamp: boolean;
   onClose: () => void;
 }) {
+  const [signer, setSigner] = useState(signatoryId);
+  const [stamp, setStamp] = useState(showStamp);
   const [state, action, pending] = useActionState(convertToInvoice, null as DocResult | null);
   const remainingPct = (remaining / subtotal) * 100;
   const fresh = remaining >= subtotal - 0.005;
@@ -239,6 +256,12 @@ function ConvertModal({
             </div>
           )}
           {templates.length <= 1 && <input type="hidden" name="template_id" value={templateId} />}
+
+          <div>
+            <p className={label}>Signed by</p>
+            <SignerPicker kit={kit} signatoryId={signer} showStamp={stamp} onSigner={setSigner} onStamp={setStamp}
+              names={{ signer: "signatory_id", stamp: "show_stamp" }} />
+          </div>
 
           <p className={`rounded-lg px-3 py-2 text-sm ${over ? "bg-red-50 text-red-700" : "bg-[var(--hover)]"}`}>
             {over ? (

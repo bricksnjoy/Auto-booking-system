@@ -50,14 +50,50 @@ export interface TemplateTail {
   terms: string;
   /** a line under the terms — who to call, how long the quote stands */
   closing_note: string;
+  /** who signs by default — each document can pick someone else */
+  signatory_id: string;
+  /** stamp documents by default */
+  show_stamp: boolean;
+  /** printed when no signatory is chosen */
   signatory_name: string;
   signatory_title: string;
   show_client_signature: boolean;
   bank_details: string;
-  /** stored images, in the private branding bucket */
-  stamp_path: string;
-  signature_path: string;
   footer_text: string;
+}
+
+/** Someone who can sign a quotation or invoice, with their signature image. */
+export interface Signatory {
+  id: string;
+  name: string;
+  title: string | null;
+  /** short-lived link to their signature, if one is uploaded */
+  signatureUrl: string | null;
+}
+
+/** The company stamp and everyone who can sign, ready to put on a page. */
+export interface SigningKit {
+  stampUrl: string | null;
+  signatories: Signatory[];
+}
+
+/**
+ * Who signs a document and whether it is stamped: the document's own choice,
+ * else its template's default.
+ */
+export function signerFor(
+  kit: SigningKit,
+  tail: TemplateTail,
+  signatoryId: string | null | undefined,
+  showStamp: boolean | null | undefined,
+) {
+  const s = kit.signatories.find((x) => x.id === (signatoryId ?? tail.signatory_id));
+  return {
+    name: s?.name ?? tail.signatory_name,
+    title: s?.title ?? tail.signatory_title,
+    signatureUrl: s?.signatureUrl ?? null,
+    stampUrl: (showStamp ?? tail.show_stamp) ? kit.stampUrl : null,
+  };
 }
 
 export interface Template {
@@ -102,12 +138,12 @@ export const DEFAULT_BODY: TemplateBody = {
 export const DEFAULT_TAIL: TemplateTail = {
   terms: "",
   closing_note: "",
+  signatory_id: "",
+  show_stamp: true,
   signatory_name: "",
   signatory_title: "",
   show_client_signature: false,
   bank_details: "",
-  stamp_path: "",
-  signature_path: "",
   footer_text: "",
 };
 

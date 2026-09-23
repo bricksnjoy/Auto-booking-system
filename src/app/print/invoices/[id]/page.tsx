@@ -16,7 +16,7 @@ export default async function PrintInvoice({ params }: { params: Promise<{ id: s
       <title>{doc.inv.number}</title>
       <PrintToolbar back={`/invoices/${id}`} filename={`${doc.inv.number.replace(/[\\/]+/g, "-")}${doc.inv.title ? ` ${doc.inv.title}` : ""}`} />
       <DocumentSheet header={doc.template.header} body={doc.template.body} tail={doc.template.tail}
-        stampUrl={doc.urls.stampUrl} signatureUrl={doc.urls.signatureUrl} data={doc.sheet} />
+        signer={doc.signer} data={doc.sheet} />
     </>
   );
 }

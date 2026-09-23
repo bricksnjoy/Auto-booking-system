@@ -1,9 +1,18 @@
 "use client";
 
-import { useActionState, useRef, useState, type ReactNode } from "react";
+import { useActionState, useState, type ReactNode } from "react";
 import { DocumentSheet } from "@/components/document-sheet";
-import { removeBranding, saveTemplate, uploadBranding, type DocResult } from "@/app/actions/documents";
-import { docNumber, type Template, type TemplateBody, type TemplateHeader, type TemplateTail } from "@/lib/documents";
+import { saveTemplate, type DocResult } from "@/app/actions/documents";
+import {
+  docNumber,
+  signerFor,
+  type SigningKit,
+  type Template,
+  type TemplateBody,
+  type TemplateHeader,
+  type TemplateTail,
+} from "@/lib/documents";
+import { SignerPicker } from "../../quotation-form";
 import { DeleteTemplate } from "../template-buttons";
 
 const input =
@@ -28,12 +37,10 @@ const SAMPLE_LINES = [
  */
 export function TemplateEditor({
   template,
-  stampUrl,
-  signatureUrl,
+  kit,
 }: {
   template: Template;
-  stampUrl: string | null;
-  signatureUrl: string | null;
+  kit: SigningKit;
 }) {
   const [state, action, pending] = useActionState(saveTemplate, null as DocResult | null);
   const [part, setPart] = useState<Part>("header");
@@ -180,13 +187,11 @@ export function TemplateEditor({
               <Field id="t-bank" text="Bank details" note="Optional — printed under the terms.">
                 <textarea id="t-bank" rows={2} value={tail.bank_details} onChange={(e) => t("bank_details", e.target.value)} className={input} />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field id="t-sn" text="Signed by">
-                  <input id="t-sn" value={tail.signatory_name} onChange={(e) => t("signatory_name", e.target.value)} className={input} />
-                </Field>
-                <Field id="t-st" text="Their title">
-                  <input id="t-st" value={tail.signatory_title} onChange={(e) => t("signatory_title", e.target.value)} className={input} />
-                </Field>
+              <div>
+                <p className={label}>Signed by, unless the document says otherwise</p>
+                <SignerPicker kit={kit} signatoryId={tail.signatory_id || null} showStamp={tail.show_stamp}
+                  onSigner={(id) => t("signatory_id", id ?? "")} onStamp={(v) => t("show_stamp", v)}
+                  names={{ signer: "tpl-signer", stamp: "tpl-stamp" }} />
               </div>
               <Check checked={tail.show_client_signature} onChange={(v) => t("show_client_signature", v)}>
                 Space for the client to sign
@@ -212,20 +217,13 @@ export function TemplateEditor({
         </div>
       </form>
 
-        {/* outside the template form: each image uploads through its own */}
-        {part === "tail" && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <ImageSlot templateId={template.id} slot="stamp" url={stampUrl} title="Company stamp" />
-            <ImageSlot templateId={template.id} slot="signature" url={signatureUrl} title="Signature" />
-          </div>
-        )}
       </div>
 
       <div className="min-w-0">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">Preview</p>
         <div className="sticky top-4 overflow-auto rounded-xl border border-[var(--border)] bg-[#e9ecf0] p-4">
           <div style={{ zoom: 0.72 }}>
-            <DocumentSheet header={header} body={body} tail={tail} stampUrl={stampUrl} signatureUrl={signatureUrl}
+            <DocumentSheet header={header} body={body} tail={tail} signer={signerFor(kit, tail, null, null)}
               data={{
                 kind: template.kind,
                 number: sampleNumber,
@@ -263,74 +261,5 @@ function Check({ checked, onChange, children }: { checked: boolean; onChange: (v
         className="h-4 w-4 accent-[var(--brand)]" />
       {children}
     </label>
-  );
-}
-
-/** Upload, replace or remove the stamp or signature. Saving is immediate. */
-function ImageSlot({
-  templateId,
-  slot,
-  url,
-  title,
-}: {
-  templateId: string;
-  slot: "stamp" | "signature";
-  url: string | null;
-  title: string;
-}) {
-  const [state, action, pending] = useActionState(uploadBranding, null as DocResult | null);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-      <p className="text-sm font-medium">{title}</p>
-      <p className={hint}>A PNG with a clear background prints best.</p>
-      <div className="mt-3 flex h-24 items-center justify-center rounded-lg border border-dashed border-[var(--border)] bg-white">
-        {url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={url} alt={title} className="max-h-20 max-w-full object-contain" />
-        ) : (
-          <span className="text-xs text-[var(--muted)]">None yet</span>
-        )}
-      </div>
-      <div className="mt-3 flex items-center gap-3">
-        <label className="cursor-pointer rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--hover)]">
-          {pending ? "Uploading…" : url ? "Replace" : "Upload"}
-          <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={pending}
-            form={`brand-${slot}`}
-            name="file"
-            onChange={() => formRef.current?.requestSubmit()} />
-        </label>
-        {url && (
-          <button type="button" onClick={() => removeBranding(templateId, slot)}
-            className="text-xs text-[var(--muted)] hover:text-red-700">
-            Remove
-          </button>
-        )}
-      </div>
-      {state?.error && <p className="mt-2 text-xs text-red-700">{state.error}</p>}
-      <BrandForm id={`brand-${slot}`} formRef={formRef} action={action} templateId={templateId} slot={slot} />
-    </div>
-  );
-}
-
-function BrandForm({
-  id,
-  formRef,
-  action,
-  templateId,
-  slot,
-}: {
-  id: string;
-  formRef: React.RefObject<HTMLFormElement | null>;
-  action: (fd: FormData) => void;
-  templateId: string;
-  slot: string;
-}) {
-  return (
-    <form id={id} ref={formRef} action={action} className="hidden">
-      <input type="hidden" name="template_id" value={templateId} />
-      <input type="hidden" name="slot" value={slot} />
-    </form>
   );
 }

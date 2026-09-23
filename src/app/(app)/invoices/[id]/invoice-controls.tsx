@@ -2,7 +2,8 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { deleteInvoice, setInvoiceStatus, updateInvoice, type DocResult } from "@/app/actions/documents";
-import { INVOICE_STATUSES, INVOICE_STATUS_LABEL, STATUS_TONE, type InvoiceStatus } from "@/lib/documents";
+import { INVOICE_STATUSES, INVOICE_STATUS_LABEL, STATUS_TONE, type InvoiceStatus, type SigningKit } from "@/lib/documents";
+import { SignerPicker } from "@/app/(app)/quotations/quotation-form";
 
 const input =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)]";
@@ -64,10 +65,12 @@ export interface InvoiceDetails {
   issue_date: string;
   due_date: string | null;
   terms: string | null;
+  signatory_id: string | null;
+  show_stamp: boolean;
 }
 
 /** Change the wording and dates on an invoice. Its amounts follow the quotation and stay as raised. */
-export function EditInvoiceButton({ invoice }: { invoice: InvoiceDetails }) {
+export function EditInvoiceButton({ invoice, kit }: { invoice: InvoiceDetails; kit: SigningKit }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -75,13 +78,15 @@ export function EditInvoiceButton({ invoice }: { invoice: InvoiceDetails }) {
         className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium hover:bg-[var(--hover)]">
         Edit
       </button>
-      {open && <EditModal invoice={invoice} onClose={() => setOpen(false)} />}
+      {open && <EditModal invoice={invoice} kit={kit} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function EditModal({ invoice, onClose }: { invoice: InvoiceDetails; onClose: () => void }) {
+function EditModal({ invoice, kit, onClose }: { invoice: InvoiceDetails; kit: SigningKit; onClose: () => void }) {
   const [state, action, pending] = useActionState(updateInvoice, null as DocResult | null);
+  const [signer, setSigner] = useState(invoice.signatory_id);
+  const [stamp, setStamp] = useState(invoice.show_stamp);
 
   useEffect(() => {
     if (state?.ok) onClose();
@@ -131,6 +136,11 @@ function EditModal({ invoice, onClose }: { invoice: InvoiceDetails; onClose: () 
           <div>
             <label htmlFor="i-terms" className={label}>Terms &amp; conditions</label>
             <textarea id="i-terms" name="terms" rows={5} defaultValue={invoice.terms ?? ""} className={input} />
+          </div>
+          <div>
+            <p className={label}>Signed by</p>
+            <SignerPicker kit={kit} signatoryId={signer} showStamp={stamp} onSigner={setSigner} onStamp={setStamp}
+              names={{ signer: "signatory_id", stamp: "show_stamp" }} />
           </div>
           {state?.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}
           <div className="flex items-center gap-3">

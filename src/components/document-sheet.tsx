@@ -41,17 +41,19 @@ export function DocumentSheet({
   body,
   tail,
   data,
-  stampUrl,
-  signatureUrl,
+  signer,
 }: {
   header: TemplateHeader;
   body: TemplateBody;
   tail: TemplateTail;
   data: SheetData;
-  /** signed links to the stored stamp and signature images */
-  stampUrl?: string | null;
-  signatureUrl?: string | null;
+  /** who signs, their signature, and the stamp if this document carries it */
+  signer?: { name: string; title: string | null; signatureUrl: string | null; stampUrl: string | null };
 }) {
+  const stampUrl = signer?.stampUrl ?? null;
+  const signatureUrl = signer?.signatureUrl ?? null;
+  const signName = signer ? signer.name : tail.signatory_name;
+  const signTitle = signer ? signer.title : tail.signatory_title;
   const subtotal = round2(data.lines.reduce((s, l) => s + l.amount, 0));
   const tax = round2((subtotal * data.taxRate) / 100);
   const total = round2(subtotal + tax);
@@ -216,8 +218,8 @@ export function DocumentSheet({
               )}
             </div>
           )}
-          {tail.signatory_name && <p className="text-[11.5px]">{tail.signatory_name}</p>}
-          {tail.signatory_title && <p className="text-[11.5px]">{tail.signatory_title}</p>}
+          {signName && <p className="text-[11.5px]">{signName}</p>}
+          {signTitle && <p className="text-[11.5px]">{signTitle}</p>}
         </div>
         {tail.show_client_signature && (
           <div className="w-56 text-[10px]">

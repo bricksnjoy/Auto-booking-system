@@ -15,7 +15,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const supabase = await createClient();
   const doc = await loadInvoice(supabase, id);
   if (!doc) notFound();
-  const { inv, quotation, project, template, urls, sheet, subtotal } = doc;
+  const { inv, quotation, project, template, signer, kit, sheet, subtotal } = doc;
   const tax = round2((subtotal * num(inv.tax_rate)) / 100);
 
   return (
@@ -34,7 +34,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             <EditInvoiceButton invoice={{
               id: inv.id, to_name: inv.to_name, to_details: inv.to_details, title: inv.title,
               issue_date: inv.issue_date, due_date: inv.due_date, terms: inv.terms,
-            }} />
+              signatory_id: inv.signatory_id ?? template.tail.signatory_id ?? null, show_stamp: inv.show_stamp,
+            }} kit={kit} />
             <Link href={`/print/invoices/${inv.id}`} target="_blank"
               className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium hover:bg-[var(--hover)]">
               Print / PDF
@@ -47,7 +48,7 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
         <div className="min-w-0 overflow-auto rounded-xl border border-[var(--border)] bg-[#e9ecf0] p-4">
           <div style={{ zoom: 0.8 }}>
             <DocumentSheet header={template.header} body={template.body} tail={template.tail}
-              stampUrl={urls.stampUrl} signatureUrl={urls.signatureUrl} data={sheet} />
+              signer={signer} data={sheet} />
           </div>
         </div>
 

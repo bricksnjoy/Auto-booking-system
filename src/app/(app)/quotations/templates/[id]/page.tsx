@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { toTemplate } from "@/lib/documents";
-import { brandingUrls } from "@/lib/branding";
+import { signingKit } from "@/lib/branding";
 import { TemplateEditor } from "./template-editor";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
   const { data } = await supabase.from("document_templates").select("*").eq("id", id).maybeSingle();
   if (!data) notFound();
   const template = toTemplate(data);
-  const urls = await brandingUrls(supabase, template.tail);
+  const kit = await signingKit(supabase);
 
   return (
     <div>
@@ -22,7 +22,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
           ← Templates
         </Link>
       </div>
-      <TemplateEditor template={template} stampUrl={urls.stampUrl} signatureUrl={urls.signatureUrl} />
+      <TemplateEditor template={template} kit={kit} />
     </div>
   );
 }

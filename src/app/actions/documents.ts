@@ -167,6 +167,8 @@ export interface QuotationInput {
   issue_date: string;
   valid_until: string | null;
   duration: string;
+  signatory_id: string | null;
+  show_stamp: boolean;
   tax_rate: number;
   terms: string;
   notes: string;
@@ -211,6 +213,8 @@ export async function saveQuotation(_prev: unknown, fd: FormData): Promise<DocRe
     issue_date: q.issue_date || new Date().toISOString().slice(0, 10),
     valid_until: q.valid_until || null,
     duration: q.duration?.trim() || null,
+    signatory_id: q.signatory_id || null,
+    show_stamp: q.show_stamp !== false,
     tax_rate: Number(q.tax_rate) || 0,
     terms: q.terms ?? "",
     notes: q.notes?.trim() || null,
@@ -340,6 +344,8 @@ export async function convertToInvoice(_prev: unknown, fd: FormData): Promise<Do
   const dueDate = String(fd.get("due_date") ?? "") || null;
   const templateId = String(fd.get("template_id") ?? "") || null;
   const label = String(fd.get("label") ?? "").trim();
+  const signatoryId = String(fd.get("signatory_id") ?? "") || null;
+  const showStamp = fd.get("show_stamp") === "on";
 
   if (!Number.isFinite(value) || value <= 0) {
     return { error: basis === "percent" ? "Enter the percentage to invoice." : "Enter the amount to invoice." };
@@ -398,6 +404,8 @@ export async function convertToInvoice(_prev: unknown, fd: FormData): Promise<Do
         portion_pct: round2(pct * 100) / 100,
         tax_rate: q.tax_rate,
         terms: template?.tail.terms ?? "",
+        signatory_id: signatoryId,
+        show_stamp: showStamp,
         created_by: user.id,
       })
       .select("id")
@@ -465,6 +473,8 @@ export async function updateInvoice(_prev: unknown, fd: FormData): Promise<DocRe
       issue_date: String(fd.get("issue_date") ?? "") || new Date().toISOString().slice(0, 10),
       due_date: String(fd.get("due_date") ?? "") || null,
       terms: String(fd.get("terms") ?? ""),
+      signatory_id: String(fd.get("signatory_id") ?? "") || null,
+      show_stamp: fd.get("show_stamp") === "on",
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
@@ -490,60 +500,107 @@ export async function deleteInvoice(id: string): Promise<DocResult> {
   redirect(inv.quotation_id ? `/quotations/${inv.quotation_id}` : "/invoices");
 }
 
-/* ─────────────────────────── stamp & signature ─────────────────────────── */
+/* ─────────────────────────── stamp & signatures ─────────────────────────── */
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
-/** Put the company stamp or a signature on a template; a PNG with a clear background prints best. */
-export async function uploadBranding(_prev: unknown, fd: FormData): Promise<DocResult> {
-  const supabase = await createClient();
-  if (!(await signedIn(supabase))) return { error: "Not signed in." };
+function refreshSigning() {
+  revalidatePath("/quotations", "layout");
+  revalidatePath("/invoices", "layout");
+  revalidatePath("/print", "layout");
+}
 
-  const templateId = String(fd.get("template_id") ?? "");
-  const slot = String(fd.get("slot") ?? "") === "signature" ? "signature" : "stamp";
-  const file = fd.get("file");
+/** Check an uploaded image and store it; returns its path in the branding bucket. */
+async function storeImage(supabase: Supabase, file: FormDataEntryValue | null, folder: string) {
   if (!(file instanceof File) || file.size === 0) return { error: "Choose an image." };
   if (file.size > 2 * 1024 * 1024) return { error: "Keep the image under 2MB." };
   if (file.type && !IMAGE_TYPES.includes(file.type)) return { error: "Upload a PNG, JPG or WebP image." };
-
-  const { data: row } = await supabase.from("document_templates").select("*").eq("id", templateId).maybeSingle();
-  if (!row) return { error: "That template no longer exists." };
-  const t = toTemplate(row);
-  const key = slot === "stamp" ? "stamp_path" : "signature_path";
-
   const ext = file.type === "image/jpeg" ? "jpg" : file.type === "image/webp" ? "webp" : "png";
-  const path = `templates/${templateId}/${slot}-${Date.now()}.${ext}`;
-  const { error: upErr } = await supabase.storage
+  const path = `${folder}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
     .from("branding")
     .upload(path, Buffer.from(await file.arrayBuffer()), { contentType: file.type || "image/png" });
-  if (upErr) return { error: `Could not save the image: ${upErr.message}` };
+  return error ? { error: `Could not save the image: ${error.message}` } : { path };
+}
 
-  const { error } = await supabase
-    .from("document_templates")
-    .update({ tail: { ...t.tail, [key]: path }, updated_at: new Date().toISOString() })
-    .eq("id", templateId);
+/** The company stamp — one for the whole company, put on any document that asks for it. */
+export async function uploadStamp(_prev: unknown, fd: FormData): Promise<DocResult> {
+  const supabase = await createClient();
+  if (!(await signedIn(supabase))) return { error: "Not signed in." };
+  const stored = await storeImage(supabase, fd.get("file"), "stamp");
+  if (stored.error) return { error: stored.error };
+
+  const { data: company } = await supabase.from("company").select("stamp_path").eq("id", true).maybeSingle();
+  const { error } = await supabase.from("company").update({ stamp_path: stored.path }).eq("id", true);
   if (error) {
-    await supabase.storage.from("branding").remove([path]);
+    await supabase.storage.from("branding").remove([stored.path!]);
     return { error: error.message };
   }
-  const old = t.tail[key];
-  if (old) await supabase.storage.from("branding").remove([old]);
-
-  refresh();
+  if (company?.stamp_path) await supabase.storage.from("branding").remove([company.stamp_path]);
+  refreshSigning();
   return { ok: true };
 }
 
-export async function removeBranding(templateId: string, slot: "stamp" | "signature"): Promise<DocResult> {
+export async function removeStamp(): Promise<DocResult> {
   const supabase = await createClient();
-  const { data: row } = await supabase.from("document_templates").select("*").eq("id", templateId).maybeSingle();
-  if (!row) return { error: "That template no longer exists." };
-  const t = toTemplate(row);
-  const key = slot === "stamp" ? "stamp_path" : "signature_path";
-  if (t.tail[key]) await supabase.storage.from("branding").remove([t.tail[key]]);
-  await supabase
-    .from("document_templates")
-    .update({ tail: { ...t.tail, [key]: "" }, updated_at: new Date().toISOString() })
-    .eq("id", templateId);
-  refresh();
+  const { data: company } = await supabase.from("company").select("stamp_path").eq("id", true).maybeSingle();
+  if (company?.stamp_path) await supabase.storage.from("branding").remove([company.stamp_path]);
+  await supabase.from("company").update({ stamp_path: null }).eq("id", true);
+  refreshSigning();
+  return { ok: true };
+}
+
+/** A signatory's signature. A PNG with a clear background sits best over the stamp. */
+export async function uploadSignature(_prev: unknown, fd: FormData): Promise<DocResult> {
+  const supabase = await createClient();
+  if (!(await signedIn(supabase))) return { error: "Not signed in." };
+  const id = String(fd.get("signatory_id") ?? "");
+  const { data: who } = await supabase.from("signatories").select("signature_path").eq("id", id).maybeSingle();
+  if (!who) return { error: "That signatory no longer exists." };
+
+  const stored = await storeImage(supabase, fd.get("file"), `signatures/${id}`);
+  if (stored.error) return { error: stored.error };
+  const { error } = await supabase.from("signatories").update({ signature_path: stored.path }).eq("id", id);
+  if (error) {
+    await supabase.storage.from("branding").remove([stored.path!]);
+    return { error: error.message };
+  }
+  if (who.signature_path) await supabase.storage.from("branding").remove([who.signature_path]);
+  refreshSigning();
+  return { ok: true };
+}
+
+export async function removeSignature(id: string): Promise<DocResult> {
+  const supabase = await createClient();
+  const { data: who } = await supabase.from("signatories").select("signature_path").eq("id", id).maybeSingle();
+  if (who?.signature_path) await supabase.storage.from("branding").remove([who.signature_path]);
+  await supabase.from("signatories").update({ signature_path: null }).eq("id", id);
+  refreshSigning();
+  return { ok: true };
+}
+
+/** Add someone who can sign, or change how their name and title print. */
+export async function saveSignatory(_prev: unknown, fd: FormData): Promise<DocResult> {
+  const supabase = await createClient();
+  if (!(await signedIn(supabase))) return { error: "Not signed in." };
+  const id = String(fd.get("id") ?? "");
+  const name = String(fd.get("name") ?? "").trim();
+  const title = String(fd.get("title") ?? "").trim() || null;
+  if (!name) return { error: "Enter the name as it should print." };
+
+  const { error } = id
+    ? await supabase.from("signatories").update({ name, title }).eq("id", id)
+    : await supabase.from("signatories").insert({ name, title, sort_order: 99 });
+  if (error) return { error: error.message };
+  refreshSigning();
+  return { ok: true };
+}
+
+/** Take someone off the list. Documents they already signed keep their signature. */
+export async function retireSignatory(id: string): Promise<DocResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("signatories").update({ active: false }).eq("id", id);
+  if (error) return { error: error.message };
+  refreshSigning();
   return { ok: true };
 }

@@ -43,6 +43,8 @@ export default async function EditQuotationPage({ params }: { params: Promise<{ 
             issue_date: q.issue_date,
             valid_until: q.valid_until,
             duration: q.duration ?? "",
+            signatory_id: q.signatory_id,
+            show_stamp: q.show_stamp,
             tax_rate: num(q.tax_rate),
             terms: q.terms ?? "",
             notes: q.notes ?? "",

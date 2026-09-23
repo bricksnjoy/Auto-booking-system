@@ -1,14 +1,28 @@
 import type { createClient } from "@/lib/supabase/server";
-import type { TemplateTail } from "@/lib/documents";
+import type { SigningKit } from "@/lib/documents";
 
-/** Short-lived links to a template's stamp and signature, which live in a private bucket. */
-export async function brandingUrls(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  tail: Pick<TemplateTail, "stamp_path" | "signature_path">,
-) {
-  const paths = [tail.stamp_path, tail.signature_path].filter(Boolean);
-  if (!paths.length) return { stampUrl: null, signatureUrl: null };
-  const { data } = await supabase.storage.from("branding").createSignedUrls(paths, 60 * 60);
-  const url = (p: string) => (p ? data?.find((d) => d.path === p)?.signedUrl ?? null : null);
-  return { stampUrl: url(tail.stamp_path), signatureUrl: url(tail.signature_path) };
+/**
+ * The company stamp and every active signatory, with short-lived links to
+ * their images — which live in a private bucket.
+ */
+export async function signingKit(supabase: Awaited<ReturnType<typeof createClient>>): Promise<SigningKit> {
+  const [{ data: company }, { data: people }] = await Promise.all([
+    supabase.from("company").select("stamp_path").eq("id", true).maybeSingle(),
+    supabase.from("signatories").select("id, name, title, signature_path").eq("active", true).order("sort_order").order("name"),
+  ]);
+  const paths = [company?.stamp_path, ...(people ?? []).map((p) => p.signature_path)].filter(Boolean) as string[];
+  const { data: signed } = paths.length
+    ? await supabase.storage.from("branding").createSignedUrls(paths, 60 * 60)
+    : { data: [] };
+  const url = (p: string | null | undefined) => (p ? signed?.find((d) => d.path === p)?.signedUrl ?? null : null);
+
+  return {
+    stampUrl: url(company?.stamp_path),
+    signatories: (people ?? []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      title: p.title,
+      signatureUrl: url(p.signature_path),
+    })),
+  };
 }

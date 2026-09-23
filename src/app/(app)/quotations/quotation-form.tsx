@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState, type ReactNode } from "react";
 import { DocumentSheet } from "@/components/document-sheet";
 import { saveQuotation, type DocResult, type LineInput, type QuotationInput } from "@/app/actions/documents";
-import { addDays, docNumber, round2, type Template } from "@/lib/documents";
+import { addDays, docNumber, round2, signerFor, type SigningKit, type Template } from "@/lib/documents";
 import { money } from "@/lib/format";
 
 const input =
@@ -41,15 +41,15 @@ export function QuotationForm({
   templates,
   projects,
   clients,
-  branding,
+  kit,
   initial,
   number,
 }: {
   templates: Template[];
   projects: ProjectOption[];
   clients: ClientOption[];
-  /** signed stamp and signature links, per template */
-  branding: Record<string, { stampUrl: string | null; signatureUrl: string | null }>;
+  /** the company stamp and who can sign */
+  kit: SigningKit;
   initial: QuotationInput;
   /** the number it has, or will get */
   number: string | null;
@@ -80,6 +80,8 @@ export function QuotationForm({
     setQ((x) => ({
       ...x,
       template_id: id,
+      signatory_id: t.tail.signatory_id || x.signatory_id,
+      show_stamp: t.tail.show_stamp,
       terms: t.tail.terms,
       tax_rate: t.body.tax_rate,
       valid_until: t.body.valid_days ? addDays(x.issue_date, t.body.valid_days) : x.valid_until,
@@ -275,6 +277,11 @@ export function QuotationForm({
           </div>
         </Section>
 
+        <Section title="Signed by">
+          <SignerPicker kit={kit} signatoryId={q.signatory_id} showStamp={q.show_stamp}
+            onSigner={(id) => set("signatory_id", id)} onStamp={(v) => set("show_stamp", v)} />
+        </Section>
+
         <Section title="Terms & notes">
           <div>
             <label htmlFor="q-terms" className={label}>Terms &amp; conditions</label>
@@ -308,7 +315,7 @@ export function QuotationForm({
           <div className="sticky top-4 overflow-auto rounded-xl border border-[var(--border)] bg-[#e9ecf0] p-4">
             <div style={{ zoom: 0.7 }}>
               <DocumentSheet header={template.header} body={template.body} tail={template.tail}
-                stampUrl={branding[template.id]?.stampUrl} signatureUrl={branding[template.id]?.signatureUrl}
+                signer={signerFor(kit, template.tail, q.signatory_id, q.show_stamp)}
                 data={{
                   kind: "quotation",
                   number: shownNumber,
@@ -333,6 +340,61 @@ export function QuotationForm({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Choose who signs and whether the stamp goes on; shared by quotations and invoices. */
+export function SignerPicker({
+  kit,
+  signatoryId,
+  showStamp,
+  onSigner,
+  onStamp,
+  names,
+}: {
+  kit: SigningKit;
+  signatoryId: string | null;
+  showStamp: boolean;
+  onSigner: (id: string | null) => void;
+  onStamp: (v: boolean) => void;
+  /** form field names, when the picker sits in a plain form */
+  names?: { signer: string; stamp: string };
+}) {
+  const chosen = kit.signatories.find((s) => s.id === signatoryId);
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {kit.signatories.map((s) => (
+          <label key={s.id}
+            className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${
+              s.id === signatoryId ? "border-[var(--brand)] bg-[var(--brand-soft)]" : "border-[var(--border)] hover:bg-[var(--hover)]"
+            }`}>
+            <input type="radio" name={names?.signer ?? "signer-choice"} value={s.id}
+              checked={s.id === signatoryId} onChange={() => onSigner(s.id)} className="accent-[var(--brand)]" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{s.name}</span>
+              <span className="block truncate text-xs text-[var(--muted)]">{s.title ?? ""}</span>
+            </span>
+            {s.signatureUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={s.signatureUrl} alt="" className="h-8 w-16 object-contain" />
+            ) : (
+              <span className="text-[10px] text-amber-700">no signature yet</span>
+            )}
+          </label>
+        ))}
+      </div>
+      <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+        <input type="checkbox" name={names?.stamp} checked={showStamp} onChange={(e) => onStamp(e.target.checked)}
+          className="h-4 w-4 accent-[var(--brand)]" />
+        Put the company stamp beside {chosen ? `${chosen.name}'s` : "the"} signature
+        {!kit.stampUrl && <span className="text-xs text-amber-700">(no stamp uploaded yet)</span>}
+      </label>
+      <p className="text-xs text-[var(--muted)]">
+        Signatures and the stamp are uploaded under{" "}
+        <a href="/quotations/signatures" target="_blank" className="underline">Signatures &amp; stamp</a>.
+      </p>
     </div>
   );
 }

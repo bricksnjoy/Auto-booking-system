@@ -14,7 +14,7 @@ export default async function NewQuotationPage({
 }) {
   const { project: projectId } = await searchParams;
   const supabase = await createClient();
-  const { templates, branding, projects, clients } = await formData(supabase);
+  const { templates, kit, projects, clients } = await formData(supabase);
   const template = templates[0];
   const today = new Date().toISOString().slice(0, 10);
 
@@ -35,7 +35,7 @@ export default async function NewQuotationPage({
           Set up a quotation template first, under <Link href="/quotations/templates" className="underline">Templates</Link>.
         </p>
       ) : (
-        <QuotationForm templates={templates} projects={projects} clients={clients} branding={branding} number={null}
+        <QuotationForm templates={templates} projects={projects} clients={clients} kit={kit} number={null}
           initial={{
             template_id: template.id,
             project_id: project?.id ?? null,
@@ -46,6 +46,8 @@ export default async function NewQuotationPage({
             issue_date: today,
             valid_until: template.body.valid_days ? addDays(today, template.body.valid_days) : null,
             duration: "",
+            signatory_id: template.tail.signatory_id || kit.signatories[0]?.id || null,
+            show_stamp: template.tail.show_stamp,
             tax_rate: template.body.tax_rate,
             terms: template.tail.terms,
             notes: "",

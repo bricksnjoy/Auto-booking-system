@@ -1,6 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
-import { round2, toTemplate, type DocKind, type Template } from "@/lib/documents";
-import { brandingUrls } from "@/lib/branding";
+import { round2, signerFor, toTemplate, type DocKind, type Template } from "@/lib/documents";
+import { signingKit } from "@/lib/branding";
 import type { SheetData } from "@/components/document-sheet";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -29,7 +29,8 @@ export async function loadQuotation(supabase: Supabase, id: string) {
   if (!q) return null;
   const template = await templateFor(supabase, "quotation", q.template_id);
   if (!template) return null;
-  const urls = await brandingUrls(supabase, template.tail);
+  const kit = await signingKit(supabase);
+  const signer = signerFor(kit, template.tail, q.signatory_id, q.show_stamp);
 
   const lines = (items ?? []).map((l) => {
     const qty = Number(l.qty);
@@ -51,7 +52,7 @@ export async function loadQuotation(supabase: Supabase, id: string) {
   };
   const subtotal = round2(lines.reduce((s, l) => s + l.amount, 0));
   const project = q.projects as unknown as { id: string; code: string; name: string } | null;
-  return { q, project, template, urls, sheet, subtotal };
+  return { q, project, template, signer, kit, sheet, subtotal };
 }
 
 export async function loadInvoice(supabase: Supabase, id: string) {
@@ -62,7 +63,8 @@ export async function loadInvoice(supabase: Supabase, id: string) {
   if (!inv) return null;
   const template = await templateFor(supabase, "invoice", inv.template_id);
   if (!template) return null;
-  const urls = await brandingUrls(supabase, template.tail);
+  const kit = await signingKit(supabase);
+  const signer = signerFor(kit, template.tail, inv.signatory_id, inv.show_stamp);
 
   const quotation = inv.quotations as unknown as { id: string; number: string } | null;
   const project = inv.projects as unknown as { id: string; code: string; name: string } | null;
@@ -90,5 +92,5 @@ export async function loadInvoice(supabase: Supabase, id: string) {
     portionLabel: pct < 99.995 ? `${Number(pct.toFixed(2))}%` : null,
   };
   const subtotal = round2(lines.reduce((s, l) => s + l.amount, 0));
-  return { inv, quotation, project, template, urls, sheet, subtotal };
+  return { inv, quotation, project, template, signer, kit, sheet, subtotal };
 }

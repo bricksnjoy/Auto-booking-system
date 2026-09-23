@@ -24,7 +24,7 @@ export default async function QuotationPage({ params }: { params: Promise<{ id: 
     supabase.from("document_templates").select("*").eq("kind", "invoice").order("is_default", { ascending: false }),
   ]);
   if (!doc) notFound();
-  const { q, project, template, urls, sheet } = doc;
+  const { q, project, template, signer, kit, sheet } = doc;
 
   const { data: invTotals } = invoices?.length
     ? await supabase.from("invoice_totals").select("*").in("invoice_id", invoices.map((i) => i.id))
@@ -65,7 +65,7 @@ export default async function QuotationPage({ params }: { params: Promise<{ id: 
         <div className="min-w-0 overflow-auto rounded-xl border border-[var(--border)] bg-[#e9ecf0] p-4">
           <div style={{ zoom: 0.8 }}>
             <DocumentSheet header={template.header} body={template.body} tail={template.tail}
-              stampUrl={urls.stampUrl} signatureUrl={urls.signatureUrl} data={sheet} />
+              signer={signer} data={sheet} />
           </div>
         </div>
 
@@ -76,6 +76,7 @@ export default async function QuotationPage({ params }: { params: Promise<{ id: 
               <StatusPicker id={q.id} status={status} />
               {status === "won" ? (
                 <ConvertButton quotationId={q.id} subtotal={subtotal} invoiced={invoiced} taxRate={num(q.tax_rate)}
+                  kit={kit} signatoryId={q.signatory_id ?? template.tail.signatory_id ?? null} showStamp={q.show_stamp}
                   templates={(invTemplates ?? []).map(toTemplate).map((t) => ({
                     id: t.id, name: t.name, is_default: t.is_default, due_days: t.body.due_days ?? 0,
                   }))} />

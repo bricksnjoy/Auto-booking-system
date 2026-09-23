@@ -1,6 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
 import { toTemplate } from "@/lib/documents";
-import { brandingUrls } from "@/lib/branding";
+import { signingKit } from "@/lib/branding";
 import type { ClientOption, ProjectOption } from "./quotation-form";
 
 /** Everything the quotation form offers: templates, projects and clients. */
@@ -16,12 +16,10 @@ export async function formData(supabase: Awaited<ReturnType<typeof createClient>
     supabase.from("clients").select("id, name, phone, address").order("name"),
   ]);
   const templates = (t ?? []).map(toTemplate);
-  const branding = Object.fromEntries(
-    await Promise.all(templates.map(async (tt) => [tt.id, await brandingUrls(supabase, tt.tail)] as const)),
-  );
+  const kit = await signingKit(supabase);
   return {
     templates,
-    branding,
+    kit,
     projects: (projects ?? []) as ProjectOption[],
     clients: (clients ?? []) as ClientOption[],
   };

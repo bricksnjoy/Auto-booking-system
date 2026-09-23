@@ -44,6 +44,10 @@ export default async function QuotationsPage({
         subtitle="Price the work, win it, then invoice it"
         action={
           <div className="flex items-center gap-3">
+            <Link href="/quotations/signatures"
+              className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium hover:bg-[var(--hover)]">
+              Signatures &amp; stamp
+            </Link>
             <Link href="/quotations/templates"
               className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium hover:bg-[var(--hover)]">
               Edit templates
