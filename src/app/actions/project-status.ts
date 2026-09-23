@@ -44,7 +44,7 @@ export async function markCompleted(_prev: unknown, fd: FormData): Promise<Statu
 
   const { data: shares } = await supabase
     .from("project_profit_split")
-    .select("share_name, share_kind, pct, investor_id, share_amount")
+    .select("share_name, share_kind, pct, investor_id, pool_member_id, share_amount")
     .eq("project_id", projectId);
 
   const rows = (shares ?? [])
@@ -55,12 +55,18 @@ export async function markCompleted(_prev: unknown, fd: FormData): Promise<Statu
       share_kind: s.share_kind as string,
       pct_snapshot: s.pct as number,
       investor_id: (s.investor_id as string | null) ?? null,
+      pool_member_id: (s.pool_member_id as string | null) ?? null,
       entry_type: "accrual" as const,
       amount: s.share_amount as number,
       entry_date: on,
       source: "completed" as const,
-      // the company's own share is capital by nature; people choose later
-      disposition: (s.share_kind as string) === "company" ? "retain" : "withdraw",
+      // the company's share, and the pool's earnings as an investor, go back
+      // into the pool; directors choose for themselves later
+      disposition:
+        (s.share_kind as string) === "company" ||
+        ((s.share_kind as string) === "investors" && s.pool_member_id)
+          ? "retain"
+          : "withdraw",
       note: "Share of profit on completion",
       created_by: user.id,
     }));
@@ -131,7 +137,7 @@ export async function markPaymentReceived(_prev: unknown, fd: FormData): Promise
 
   const { data: accruals } = await supabase
     .from("internal_account_entries")
-    .select("share_name, share_kind, pct_snapshot, investor_id, amount")
+    .select("share_name, share_kind, pct_snapshot, investor_id, pool_member_id, disposition, amount")
     .eq("project_id", projectId)
     .eq("source", "completed");
 
@@ -171,7 +177,40 @@ export async function markPaymentReceived(_prev: unknown, fd: FormData): Promise
   const { error } = await supabase.from("internal_account_entries").insert(rows);
   if (error) return { error: error.message };
 
+  // Now the money is real, what stays in the business joins the pool: the
+  // pool's own earnings as an investor, the company's share, and any director
+  // who chose to keep theirs.
+  const poolRows = accruals
+    .filter((a) => a.pool_member_id && a.disposition === "retain")
+    .map((a) => ({
+      member_id: a.pool_member_id as string,
+      entry_type:
+        (a.share_kind as string) === "investors" ? ("profit" as const) : ("contribution" as const),
+      amount: Number(a.amount ?? 0),
+      project_id: projectId,
+      origin: "payment_received",
+      entry_date: on,
+      note:
+        (a.share_kind as string) === "investors"
+          ? "Pool's share of investor profit"
+          : (a.share_kind as string) === "company"
+            ? "Company's retained share"
+            : "Director kept their share in the pool",
+      created_by: user.id,
+    }));
+
+  await supabase
+    .from("capital_pool_entries")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("origin", "payment_received");
+  if (poolRows.length) {
+    const { error: pErr } = await supabase.from("capital_pool_entries").insert(poolRows);
+    if (pErr) return { error: pErr.message };
+  }
+
   refresh(projectId);
+  revalidatePath("/capital-pool");
   return { ok: true };
 }
 
@@ -186,6 +225,11 @@ export async function unmarkPaymentReceived(_prev: unknown, fd: FormData): Promi
     .delete()
     .eq("project_id", projectId)
     .eq("source", "payment_received");
+  await supabase
+    .from("capital_pool_entries")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("origin", "payment_received");
 
   const { error } = await supabase
     .from("projects")
@@ -194,6 +238,7 @@ export async function unmarkPaymentReceived(_prev: unknown, fd: FormData): Promi
   if (error) return { error: error.message };
 
   refresh(projectId);
+  revalidatePath("/capital-pool");
   return { ok: true };
 }
 
@@ -212,13 +257,44 @@ export async function setShareDisposition(_prev: unknown, fd: FormData): Promise
     return { error: "Choose take or keep." };
   }
 
-  const { error } = await supabase
+  const { data: accrual, error } = await supabase
     .from("internal_account_entries")
     .update({ disposition })
     .eq("project_id", projectId)
     .eq("share_name", shareName)
-    .eq("entry_type", "accrual");
+    .eq("entry_type", "accrual")
+    .select("pool_member_id, amount")
+    .maybeSingle();
   if (error) return { error: error.message };
+
+  // if the client has already paid, the choice moves real money: keeping puts
+  // the share into the pool under this director, taking removes it again
+  const { data: project } = await supabase
+    .from("projects")
+    .select("payment_received_at")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (project?.payment_received_at && accrual?.pool_member_id) {
+    await supabase
+      .from("capital_pool_entries")
+      .delete()
+      .eq("project_id", projectId)
+      .eq("member_id", accrual.pool_member_id)
+      .eq("origin", "payment_received")
+      .eq("entry_type", "contribution");
+    if (disposition === "retain") {
+      await supabase.from("capital_pool_entries").insert({
+        member_id: accrual.pool_member_id,
+        entry_type: "contribution",
+        amount: Number(accrual.amount ?? 0),
+        project_id: projectId,
+        origin: "payment_received",
+        entry_date: String(project.payment_received_at).slice(0, 10),
+        note: "Director kept their share in the pool",
+      });
+    }
+    revalidatePath("/capital-pool");
+  }
 
   revalidatePath(`/projects/${projectId}`);
   revalidatePath("/internal");

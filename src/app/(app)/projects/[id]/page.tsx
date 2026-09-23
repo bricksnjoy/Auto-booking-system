@@ -47,8 +47,7 @@ export default async function ProjectDetailPage({
     { data: company },
     { data: financingSources },
     { data: directory },
-    { data: retainedRows },
-    { data: capitalRows },
+    { data: poolSummary },
     { data: dispositions },
   ] = await Promise.all([
     supabase.from("projects").select("*, clients(name)").eq("id", id).single(),
@@ -79,15 +78,7 @@ export default async function ProjectDetailPage({
     supabase.from("investors").select("id, name").order("name"),
     // company retained profit accrued, and all company capital already put into
     // projects — the difference is what is free to reinvest
-    supabase
-      .from("internal_account_entries")
-      .select("amount")
-      .eq("entry_type", "accrual")
-      .eq("disposition", "retain"),
-    supabase
-      .from("project_financing_sources")
-      .select("amount")
-      .eq("source_type", "capital_pool"),
+    supabase.from("finance_summary").select("pool_total, pool_deployed").maybeSingle(),
     supabase
       .from("internal_account_entries")
       .select("share_name, disposition")
@@ -103,10 +94,9 @@ export default async function ProjectDetailPage({
     amount: num(s.amount),
     funded_on: s.funded_on ?? null,
   }));
-  // company share plus any director who chose to keep theirs
-  const retainedTotal = (retainedRows ?? []).reduce((a, r) => a + num(r.amount), 0);
-  const capitalDeployed = (capitalRows ?? []).reduce((a, r) => a + num(r.amount), 0);
-  const availableCapital = Math.round((retainedTotal - capitalDeployed) * 100) / 100;
+  // what the capital pool holds, less what is already reinvested elsewhere
+  const availableCapital =
+    Math.round((num(poolSummary?.pool_total) - num(poolSummary?.pool_deployed)) * 100) / 100;
 
   // sign the stored bill photos so they can be shown without making the
   // bucket public
@@ -156,6 +146,7 @@ export default async function ProjectDetailPage({
     share_kind: s.share_kind,
     pct: num(s.pct),
     share_amount: num(s.share_amount),
+    parent_share: (s.parent_share as string | null) ?? null,
     disposition: completed ? dispByShare.get(s.share_name) ?? "withdraw" : null,
   }));
 

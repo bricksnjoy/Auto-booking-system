@@ -18,13 +18,14 @@ export default async function AppLayout({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: profile }, { data: company }] = await Promise.all([
+  const [{ data: profile }, { data: company }, { data: finance }] = await Promise.all([
     supabase
       .from("profiles")
       .select("full_name, email, role, job_title")
       .eq("id", user.id)
       .single(),
     supabase.from("company").select("gst_registered").eq("id", true).maybeSingle(),
+    supabase.from("finance_summary").select("pool_total, pool_deployed, owed").maybeSingle(),
   ]);
 
   const name = profile?.full_name || user.email || "User";
@@ -40,7 +41,20 @@ export default async function AppLayout({
           <Logo size={34} />
           <Wordmark size="sm" />
         </div>
-        <Sidebar groups={groups} quickActions={quickActions} />
+        <Sidebar
+          groups={groups}
+          quickActions={quickActions}
+          finance={
+            // only people who can see the money pages see the money
+            groups.some((g) => g.items.some((i) => i.href === "/capital-pool")) && finance
+              ? {
+                  pool: Number(finance.pool_total ?? 0),
+                  available: Number(finance.pool_total ?? 0) - Number(finance.pool_deployed ?? 0),
+                  owed: Number(finance.owed ?? 0),
+                }
+              : undefined
+          }
+        />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

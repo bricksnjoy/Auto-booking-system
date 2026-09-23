@@ -59,7 +59,7 @@ export function InvestmentsPanel({
           <div className="flex gap-3">
             <button type="button" onClick={() => setMode("reinvest")}
               className="text-xs font-medium text-[var(--brand)] hover:underline">
-              + Reinvest
+              + Reinvest from pool
             </button>
             <button type="button" onClick={() => setMode("investor")}
               className="text-xs font-medium text-[var(--brand)] hover:underline">
@@ -284,10 +284,14 @@ function AddReinvestment({
     <form ref={formRef} action={action} className="space-y-3 border-b border-[var(--border)] px-5 py-4">
       <input type="hidden" name="project_id" value={projectId} />
       <p className="text-sm">
-        <span className="text-[var(--muted)]">Company capital available:</span>{" "}
+        <span className="text-[var(--muted)]">Capital pool available:</span>{" "}
         <span className={`font-medium ${available > 0 ? "text-emerald-700" : "text-[var(--muted)]"}`}>
           {money(available)}
         </span>
+      </p>
+      <p className="text-xs text-[var(--muted)]">
+        The pool invests like any other backer. Its share of the investors&apos; profit is divided
+        among its members by how much of the pool each holds today.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
@@ -306,7 +310,7 @@ function AddReinvestment({
       <div className="flex items-center gap-3">
         <button type="submit" disabled={pending}
           className="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-60">
-          {pending ? "Saving…" : "Save reinvestment"}
+          {pending ? "Saving…" : "Reinvest from pool"}
         </button>
         <button type="button" onClick={onDone}
           className="text-sm text-[var(--muted)] hover:underline">Cancel</button>

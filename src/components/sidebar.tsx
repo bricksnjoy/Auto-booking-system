@@ -25,12 +25,19 @@ function Pending() {
   );
 }
 
+const rf = (n: number) =>
+  new Intl.NumberFormat("en-MV", { style: "currency", currency: "MVR", maximumFractionDigits: 0 })
+    .format(n);
+
 export function Sidebar({
   groups,
   quickActions,
+  finance,
 }: {
   groups: NavGroup[];
   quickActions: NavItem[];
+  /** the few figures worth having in view on every page */
+  finance?: { pool: number; available: number; owed: number };
 }) {
   const pathname = usePathname();
 
@@ -102,6 +109,23 @@ export function Sidebar({
                 </svg>
               </button>
 
+              {expanded && g.group === "Finance" && finance && (
+                <Link href="/capital-pool"
+                  className="mx-1 mb-1.5 mt-1 block rounded-lg border border-[var(--border)] px-3 py-2 text-[11px] transition-colors hover:bg-[var(--hover)]">
+                  <span className="flex justify-between">
+                    <span className="text-[var(--muted)]">Capital pool</span>
+                    <span className="font-medium tabular-nums">{rf(finance.pool)}</span>
+                  </span>
+                  <span className="mt-0.5 flex justify-between">
+                    <span className="text-[var(--muted)]">Available</span>
+                    <span className="font-medium tabular-nums text-emerald-700">{rf(finance.available)}</span>
+                  </span>
+                  <span className="mt-0.5 flex justify-between">
+                    <span className="text-[var(--muted)]">Owed, unpaid</span>
+                    <span className="font-medium tabular-nums text-amber-700">{rf(finance.owed)}</span>
+                  </span>
+                </Link>
+              )}
               {expanded && (
                 <ul className="mb-1 space-y-0.5 pl-1">
                   {g.items.map((item) => {

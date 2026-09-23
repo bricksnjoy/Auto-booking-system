@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { poolPosition, ratioSnapshot } from "@/lib/pool";
 
 export type InvestmentResult = { error?: string; ok?: boolean };
 
@@ -98,9 +99,10 @@ export async function addInvestment(_prev: unknown, fd: FormData): Promise<Inves
 }
 
 /**
- * Money the company puts back into a project from its own capital. Recorded as
- * a capital-pool financing source, so it shares in repayment like any other,
- * and it draws down the company's available capital.
+ * Money the capital pool puts into a project. To the project it is an investor
+ * like any other, so it takes its share of the investors' profit by what it put
+ * in. The pool's make-up is recorded at this moment, because that is the ratio
+ * its members earn on — not whatever the pool looks like when the client pays.
  */
 export async function addReinvestment(_prev: unknown, fd: FormData): Promise<InvestmentResult> {
   const supabase = await createClient();
@@ -114,22 +116,45 @@ export async function addReinvestment(_prev: unknown, fd: FormData): Promise<Inv
   const amount = number(fd, "amount");
   if (amount <= 0) return { error: "Enter the amount reinvested." };
 
+  const pos = await poolPosition(supabase);
+  if (pos.total <= 0) {
+    return { error: "The capital pool is empty. Record the members' contributions first." };
+  }
+  if (amount > pos.available + 0.001) {
+    return {
+      error: `Only ${pos.available.toFixed(2)} is free in the pool — the rest is reinvested in projects not yet paid for.`,
+    };
+  }
+
   const { count } = await supabase
     .from("project_financing_sources")
     .select("id", { count: "exact", head: true })
     .eq("project_id", projectId);
 
-  const { error } = await supabase.from("project_financing_sources").insert({
-    project_id: projectId,
-    name: "Reinvestment — Company Capital",
-    source_type: "capital_pool",
-    amount,
-    funded_on: text(fd, "funded_on") ?? new Date().toISOString().slice(0, 10),
-    sort_order: (count ?? 0) + 1,
-  });
+  const { data: source, error } = await supabase
+    .from("project_financing_sources")
+    .insert({
+      project_id: projectId,
+      name: "Capital Pool",
+      source_type: "capital_pool",
+      amount,
+      funded_on: text(fd, "funded_on") ?? new Date().toISOString().slice(0, 10),
+      sort_order: (count ?? 0) + 1,
+    })
+    .select("id")
+    .single();
   if (error) return { error: error.message };
 
+  const snapshot = ratioSnapshot(pos.members).map((r, i) => ({
+    ...r,
+    source_id: source.id,
+    sort_order: i + 1,
+  }));
+  const { error: sErr } = await supabase.from("capital_pool_contributions").insert(snapshot);
+  if (sErr) return { error: sErr.message };
+
   refresh(projectId);
+  revalidatePath("/capital-pool");
   return { ok: true };
 }
 
