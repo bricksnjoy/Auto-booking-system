@@ -16,7 +16,44 @@ const input =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)]";
 const btn = "rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--hover)]";
 
-/** Pick a file and it uploads straight away. */
+// a stamp prints about 34mm wide; below this it looks soft on paper
+const MIN_SIDE = 400;
+
+/** An image's pixel size, read in the browser before it is sent. */
+function pixelSize(file: File): Promise<{ w: number; h: number } | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      resolve(null);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  });
+}
+
+/** Warns under the image when the stored copy is too small to print sharply. */
+function SizeNote({ url }: { url: string }) {
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="" className="hidden" onLoad={(e) => setSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })} />
+      {size && Math.min(size.w, size.h) < MIN_SIDE && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          This image is only {size.w}×{size.h} pixels, so it prints blurry. Upload a larger scan — at least{" "}
+          {MIN_SIDE}×{MIN_SIDE}, ideally 800 or more.
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Pick a file and it uploads straight away — after a warning if it is too small to print well. */
 function UploadButton({
   action,
   pending,
@@ -37,7 +74,20 @@ function UploadButton({
       <label className={`${btn} inline-block cursor-pointer ${pending ? "opacity-60" : ""}`}>
         {pending ? "Uploading…" : text}
         <input type="file" name="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={pending}
-          onChange={() => formRef.current?.requestSubmit()} />
+          onChange={async (e) => {
+            const input = e.currentTarget;
+            const file = input.files?.[0];
+            if (!file) return;
+            const size = await pixelSize(file);
+            if (
+              size && Math.min(size.w, size.h) < MIN_SIDE &&
+              !confirm(`This image is only ${size.w}×${size.h} pixels and will look blurry when printed. Upload it anyway?`)
+            ) {
+              input.value = "";
+              return;
+            }
+            formRef.current?.requestSubmit();
+          }} />
       </label>
     </form>
   );
@@ -65,7 +115,10 @@ export function StampCard({ stampUrl }: { stampUrl: string | null }) {
           </button>
         )}
       </div>
-      <p className="mt-2 text-xs text-[var(--muted)]">A PNG with a clear background prints best.</p>
+      {stampUrl && <SizeNote url={stampUrl} />}
+      <p className="mt-2 text-xs text-[var(--muted)]">
+        A PNG with a clear background prints best — scan the stamp at 800×800 pixels or more.
+      </p>
       {state?.error && <p className="mt-2 text-xs text-red-700">{state.error}</p>}
     </section>
   );
@@ -146,6 +199,7 @@ export function SignatoryCard({ signatory, stampUrl }: { signatory: Signatory; s
           Remove signatory
         </button>
       </div>
+      {signatory.signatureUrl && <SizeNote url={signatory.signatureUrl} />}
       {upState?.error && <p className="mt-2 text-xs text-red-700">{upState.error}</p>}
     </section>
   );
