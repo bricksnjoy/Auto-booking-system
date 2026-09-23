@@ -2,7 +2,13 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { money } from "@/lib/format";
-import { recordRepayment, deleteRepayment, type RepaymentResult } from "@/app/actions/repayments";
+import {
+  recordRepayment,
+  deleteRepayment,
+  markInvestorPaid,
+  unmarkInvestorPaid,
+  type RepaymentResult,
+} from "@/app/actions/repayments";
 
 const input =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)]";
@@ -154,5 +160,48 @@ export function UndoRepayment({ id }: { id: string }) {
       className="text-xs text-[var(--muted)] hover:text-red-700">
       Undo
     </button>
+  );
+}
+
+/**
+ * Whether an investor has been paid on a project. One press ticks them off;
+ * pressing "Paid" again (and confirming) takes the tick back off.
+ */
+export function PaidToggle({
+  projectId,
+  investorId,
+  paidAt,
+}: {
+  projectId: string;
+  investorId: string;
+  paidAt: string | null;
+}) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function toggle() {
+    if (paidAt && !confirm("Mark this investor as not paid again?")) return;
+    setPending(true);
+    setError(null);
+    const r = paidAt
+      ? await unmarkInvestorPaid(projectId, investorId)
+      : await markInvestorPaid(projectId, investorId);
+    setPending(false);
+    if (r.error) setError(r.error);
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      {error && <span className="text-xs text-red-700">{error}</span>}
+      <button type="button" onClick={toggle} disabled={pending}
+        title={paidAt ? `Marked paid ${new Date(paidAt).toLocaleDateString("en-GB")} — press to undo` : undefined}
+        className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors disabled:opacity-60 ${
+          paidAt
+            ? "bg-emerald-600 text-white hover:bg-emerald-700"
+            : "border border-[var(--border)] bg-[var(--field)] hover:bg-[var(--hover)]"
+        }`}>
+        {pending ? "Saving…" : paidAt ? "✓ Paid" : "Mark paid"}
+      </button>
+    </span>
   );
 }

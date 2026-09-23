@@ -143,3 +143,86 @@ export async function deleteRepayment(id: string): Promise<RepaymentResult> {
   refresh(r.project_id, r.investor_id);
   return { ok: true };
 }
+
+/**
+ * Tick an investor off as paid on a project — a yes/no record, with no amount
+ * attached. Their profit share, if it has been worked out, is cleared from the
+ * internal account so it stops showing as owed.
+ */
+export async function markInvestorPaid(projectId: string, investorId: string): Promise<RepaymentResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const { data: accrual } = await supabase
+    .from("internal_account_entries")
+    .select("share_name, amount")
+    .eq("project_id", projectId)
+    .eq("investor_id", investorId)
+    .eq("entry_type", "accrual")
+    .is("pool_member_id", null)
+    .maybeSingle();
+
+  let entryId: string | null = null;
+  if (accrual && Number(accrual.amount) > 0) {
+    const { data: entry, error } = await supabase
+      .from("internal_account_entries")
+      .insert({
+        project_id: projectId,
+        share_name: accrual.share_name,
+        share_kind: "investors",
+        investor_id: investorId,
+        entry_type: "settlement",
+        amount: -Number(accrual.amount),
+        entry_date: new Date().toISOString().slice(0, 10),
+        source: "manual",
+        note: "Investor marked as paid",
+        created_by: user.id,
+      })
+      .select("id")
+      .single();
+    if (error) return { error: error.message };
+    entryId = entry.id;
+  }
+
+  const { error } = await supabase.from("investor_paid_marks").insert({
+    project_id: projectId,
+    investor_id: investorId,
+    internal_entry_id: entryId,
+    marked_by: user.id,
+  });
+  if (error) {
+    if (entryId) await supabase.from("internal_account_entries").delete().eq("id", entryId);
+    // already ticked off by someone else — nothing more to do
+    if (error.code !== "23505") return { error: error.message };
+  }
+
+  refresh(projectId, investorId);
+  return { ok: true };
+}
+
+/** Take the tick back off: they show as not yet paid again. */
+export async function unmarkInvestorPaid(projectId: string, investorId: string): Promise<RepaymentResult> {
+  const supabase = await createClient();
+  const { data: mark } = await supabase
+    .from("investor_paid_marks")
+    .select("internal_entry_id")
+    .eq("project_id", projectId)
+    .eq("investor_id", investorId)
+    .maybeSingle();
+  if (!mark) return { ok: true };
+
+  await supabase
+    .from("investor_paid_marks")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("investor_id", investorId);
+  if (mark.internal_entry_id) {
+    await supabase.from("internal_account_entries").delete().eq("id", mark.internal_entry_id);
+  }
+
+  refresh(projectId, investorId);
+  return { ok: true };
+}

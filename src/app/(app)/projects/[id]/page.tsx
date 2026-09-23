@@ -90,15 +90,12 @@ export default async function ProjectDetailPage({
       .eq("entry_type", "accrual"),
     supabase
       .from("investor_balances")
-      .select("investor_id, capital_owed, profit_owed")
+      .select("investor_id, paid_at")
       .eq("project_id", id),
   ]);
 
-  const owedTo = Object.fromEntries(
-    (investorBalances ?? []).map((b) => [
-      b.investor_id as string,
-      { capital: num(b.capital_owed), profit: num(b.profit_owed) },
-    ]),
+  const paidAt = Object.fromEntries(
+    (investorBalances ?? []).map((b) => [b.investor_id as string, (b.paid_at as string | null) ?? null]),
   );
 
   const investmentRows: InvestmentRow[] = (financingSources ?? []).map((s) => ({
@@ -341,10 +338,7 @@ export default async function ProjectDetailPage({
             node: (
           <InvestmentsPanel
             locked={locked}
-            projectName={p.project_name}
-            owedTo={owedTo}
-            cost={num(p.exp)}
-            clientPaid={Boolean(project.payment_received_at)}
+            paidAt={paidAt}
             projectId={id}
             rows={investmentRows}
             directory={directory ?? []}

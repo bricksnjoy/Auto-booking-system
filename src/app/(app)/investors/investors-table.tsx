@@ -68,7 +68,7 @@ export function InvestorsTable({ rows }: { rows: InvestorRow[] }) {
                   <Td right>{i.projects || "—"}</Td>
                   <Td right className="font-medium">{i.invested ? money(i.invested) : "—"}</Td>
                   <Td right className={i.owed > 0.005 ? "font-medium text-amber-700" : "text-[var(--muted)]"}>
-                    {i.owed > 0.005 ? money(i.owed) : i.invested ? "paid back" : "—"}
+                    {i.owed > 0.005 ? money(i.owed) : i.invested ? "paid" : "—"}
                   </Td>
                   <Td right>
                     <button type="button" onClick={() => setEditing(i)}
