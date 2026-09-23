@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import {
   Card, CardHeader, PageHeader, Stat, Badge, Progress, Table, Th, Td, Empty,
@@ -12,6 +13,8 @@ import { VariationsPanel } from "./variations-panel";
 import { BillsPanel } from "./bills-panel";
 import { InvestmentsPanel, type InvestmentRow } from "./investments-panel";
 import { ProfitShareCard, type ShareLine } from "./profit-share-card";
+import { ProjectViews } from "./project-views";
+import { VIEW_COOKIE, type ProjectView } from "@/lib/project-view";
 
 export const dynamic = "force-dynamic";
 // bill reading waits on Google, and retries when it is busy
@@ -184,6 +187,9 @@ export default async function ProjectDetailPage({
 
   const client = project?.clients as unknown as { name: string } | null;
   const revised = num(p.value) + num(p.variation);
+  const openTasks = (tasks ?? []).filter((t) => t.status !== "completed").length;
+  const initialView: ProjectView =
+    (await cookies()).get(VIEW_COOKIE)?.value === "boxes" ? "boxes" : "classic";
 
   return (
     <div>
@@ -257,7 +263,40 @@ export default async function ProjectDetailPage({
         />
       </div>
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-2">
+      <ProjectViews
+        initialView={initialView}
+        sections={{
+          tasks: {
+            title: "Tasks",
+            summary: `${openTasks} open · ${tasks?.length ?? 0} in all`,
+            node: (
+        <Card>
+          <CardHeader title="Tasks" />
+          {!tasks?.length ? (
+            <Empty message="No tasks." />
+          ) : (
+            <Table>
+              <thead>
+                <tr><Th>Task</Th><Th>Status</Th><Th right>Due</Th></tr>
+              </thead>
+              <tbody>
+                {tasks.map((t) => (
+                  <tr key={t.id}>
+                    <Td>{t.title}</Td>
+                    <Td><Badge value={t.status} /></Td>
+                    <Td right className="text-xs">{date(t.due_date)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </Card>
+        ),
+          },
+          cost: {
+            title: "Cost breakdown",
+            summary: money(p.exp),
+            node: (
         <Card>
           <CardHeader title="Cost breakdown" subtitle="Budget against actual, by category" />
           {costRows.length === 0 ? (
@@ -285,9 +324,65 @@ export default async function ProjectDetailPage({
             </Table>
           )}
         </Card>
-
+        ),
+          },
+          profit: {
+            title: "Profit share",
+            summary: money(p.profit),
+            node: (
         <ProfitShareCard projectId={id} shares={shares} completed={completed} locked={locked} />
-
+        ),
+          },
+          investments: {
+            title: "Investments",
+            summary: investmentRows.length
+              ? `${money(investmentRows.reduce((s, r) => s + r.amount, 0))} · ${investmentRows.length}`
+              : "None yet",
+            node: (
+          <InvestmentsPanel
+            locked={locked}
+            projectName={p.project_name}
+            owedTo={owedTo}
+            cost={num(p.exp)}
+            clientPaid={Boolean(project.payment_received_at)}
+            projectId={id}
+            rows={investmentRows}
+            directory={directory ?? []}
+            availableCapital={availableCapital}
+          />
+        ),
+          },
+          bills: {
+            title: "Bills",
+            summary: `${billRows.length} bill${billRows.length === 1 ? "" : "s"}`,
+            node: (
+          <BillsPanel
+            locked={locked}
+            projectId={id}
+            rows={billRows}
+            categories={categories ?? []}
+            defaultActivityNo={
+              // the company's own number, falling back to whatever the last
+              // bill was filed under until it has been set
+              company?.taxable_activity_no ??
+              billRows.find((b) => b.taxable_activity_no)?.taxable_activity_no ??
+              null
+            }
+            autoReadOn={extractionAvailable()}
+            gstRegistered={company?.gst_registered ?? false}
+          />
+        ),
+          },
+          variations: {
+            title: "Variations",
+            summary: variationRows.length
+              ? `${money(num(p.variation))} · ${variationRows.length}`
+              : "None",
+            node: (
+          <VariationsPanel projectId={id} rows={variationRows} locked={locked} />
+        ),
+          },
+          programme: { title: "Programme", summary: "", node: (
         <Card>
           <CardHeader title="Programme" subtitle="Phases and progress" />
           {!phases?.length ? (
@@ -312,7 +407,8 @@ export default async function ProjectDetailPage({
             </Table>
           )}
         </Card>
-
+        ) },
+          milestones: { title: "Milestones", summary: "", node: (
         <Card>
           <CardHeader title="Milestones" />
           {!milestones?.length ? (
@@ -335,65 +431,9 @@ export default async function ProjectDetailPage({
             </Table>
           )}
         </Card>
-
-        <div className="xl:col-span-2">
-          <VariationsPanel projectId={id} rows={variationRows} locked={locked} />
-        </div>
-
-        <div className="xl:col-span-2">
-          <InvestmentsPanel
-            locked={locked}
-            projectName={p.project_name}
-            owedTo={owedTo}
-            cost={num(p.exp)}
-            clientPaid={Boolean(project.payment_received_at)}
-            projectId={id}
-            rows={investmentRows}
-            directory={directory ?? []}
-            availableCapital={availableCapital}
-          />
-        </div>
-
-        <div className="xl:col-span-2">
-          <BillsPanel
-            locked={locked}
-            projectId={id}
-            rows={billRows}
-            categories={categories ?? []}
-            defaultActivityNo={
-              // the company's own number, falling back to whatever the last
-              // bill was filed under until it has been set
-              company?.taxable_activity_no ??
-              billRows.find((b) => b.taxable_activity_no)?.taxable_activity_no ??
-              null
-            }
-            autoReadOn={extractionAvailable()}
-            gstRegistered={company?.gst_registered ?? false}
-          />
-        </div>
-
-        <Card className="xl:col-span-2">
-          <CardHeader title="Tasks" />
-          {!tasks?.length ? (
-            <Empty message="No tasks." />
-          ) : (
-            <Table>
-              <thead>
-                <tr><Th>Task</Th><Th>Status</Th><Th right>Due</Th></tr>
-              </thead>
-              <tbody>
-                {tasks.map((t) => (
-                  <tr key={t.id}>
-                    <Td>{t.title}</Td>
-                    <Td><Badge value={t.status} /></Td>
-                    <Td right className="text-xs">{date(t.due_date)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          )}
-        </Card>
-      </div>
+        ) },
+        }}
+      />
     </div>
   );
 }
