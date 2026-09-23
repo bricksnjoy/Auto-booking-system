@@ -17,23 +17,23 @@ export default async function EstimatorSetupPage() {
       </div>
       <PageHeader
         title="Estimator setup"
-        subtitle="Boards and their prices, what goes into each 2ft module, and what a door or drawer takes"
+        subtitle="Boards and prices, what each part is and what it is cut from — sizes come from the walls on each estimate"
       />
 
       <div className="space-y-6">
         <MaterialsCard materials={materials} />
         <div className="grid gap-6 2xl:grid-cols-2">
-          <RecipeCard cabinet="bottom" title="Bottom cabinet — one module"
-            subtitle={`Parts for ${settings.bottom_module_in}in (${settings.bottom_module_in / 12}ft) of bottom cabinet`}
+          <RecipeCard cabinet="bottom" title="Bottom cabinets"
+            subtitle="Boards along the run are cut as long as the sheet allows; partitions and shelves per cabinet"
             parts={parts.filter((p) => p.cabinet === "bottom")} materials={materials} />
-          <RecipeCard cabinet="top" title="Top cabinet — one module"
-            subtitle={`Parts for ${settings.top_module_in}in (${settings.top_module_in / 12}ft) of top cabinet`}
+          <RecipeCard cabinet="top" title="Top cabinets"
+            subtitle="The same, for the cabinets on the wall"
             parts={parts.filter((p) => p.cabinet === "top")} materials={materials} />
           <RecipeCard cabinet="door" title="Each door"
-            subtitle="The panel takes the door size entered on the estimate"
+            subtitle="Sized to its cabinet: one door up to the single-door width, two above it"
             parts={parts.filter((p) => p.cabinet === "door")} materials={materials} />
           <RecipeCard cabinet="drawer" title="Each drawer"
-            subtitle="The front takes the size entered on the estimate; the box is the extra wood a drawer needs"
+            subtitle="Fronts share the cabinet's height; the box is sized to the clear width and the longest runner that fits"
             parts={parts.filter((p) => p.cabinet === "drawer")} materials={materials} />
         </div>
         <SettingsCard settings={settings} />

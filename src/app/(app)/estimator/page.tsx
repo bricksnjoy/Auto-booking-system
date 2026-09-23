@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { estimatorData } from "@/lib/estimator-data";
-import { blankGroup, type EstimateInput } from "@/lib/estimator";
+import { blankGroup, normalizeInput, type EstimateInput } from "@/lib/estimator";
 import { Estimator, type SavedEstimate } from "./estimator";
 
 export const dynamic = "force-dynamic";
@@ -22,15 +22,16 @@ export default async function EstimatorPage({ searchParams }: { searchParams: Pr
 
   // reopened from a saved estimate: the same measurements, at today's prices
   const reopened = from ? (saved ?? []).find((s) => s.id === from) : undefined;
-  const initial: EstimateInput = (reopened?.inputs as EstimateInput | undefined) ?? {
-    unit: "ft",
-    bottom: { ...blankGroup(), shape: "L", runs: [0, 0, 0] },
-    top: { ...blankGroup(), shape: "none" },
-    deduct_corners: true,
-    waste_pct: data.settings.waste_pct,
-    labour_per_ft: data.settings.labour_per_ft,
-    margin_pct: data.settings.margin_pct,
-  };
+  const initial: EstimateInput = reopened?.inputs
+    ? normalizeInput(reopened.inputs as EstimateInput & Record<string, unknown>)
+    : {
+        unit: "ft",
+        bottom: { ...blankGroup(), shape: "L" },
+        top: blankGroup(),
+        waste_pct: data.settings.waste_pct,
+        labour_per_ft: data.settings.labour_per_ft,
+        margin_pct: data.settings.margin_pct,
+      };
 
   return (
     <div>

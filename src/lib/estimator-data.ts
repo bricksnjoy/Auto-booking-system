@@ -1,9 +1,9 @@
 import type { createClient } from "@/lib/supabase/server";
-import type { Material, Part, Settings } from "@/lib/estimator";
+import type { Material, Part, Role, Settings } from "@/lib/estimator";
 
 const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
 
-/** The boards, accessories, module recipes and defaults the estimator works from. */
+/** The boards, fittings, part recipes and defaults the estimator works from. */
 export async function estimatorData(supabase: Awaited<ReturnType<typeof createClient>>) {
   const [{ data: m }, { data: p }, { data: s }] = await Promise.all([
     supabase.from("cabinet_materials").select("*").eq("active", true).order("sort_order").order("name"),
@@ -24,27 +24,33 @@ export async function estimatorData(supabase: Awaited<ReturnType<typeof createCl
     id: x.id,
     cabinet: x.cabinet,
     name: x.name,
+    role: x.role as Role,
     material_id: x.material_id,
     width_in: n(x.width_in),
     height_in: n(x.height_in),
     qty: Number(x.qty),
-    per_shelf: x.per_shelf,
-    front_panel: x.front_panel,
-    along_wall: x.along_wall,
-    shared_side: x.shared_side,
   }));
+  const num = (k: string, fallback: number) => Number((s as Record<string, unknown> | null)?.[k] ?? fallback);
   const settings: Settings = {
-    bottom_module_in: Number(s?.bottom_module_in ?? 24),
-    top_module_in: Number(s?.top_module_in ?? 24),
-    bottom_depth_in: Number(s?.bottom_depth_in ?? 24),
-    top_depth_in: Number(s?.top_depth_in ?? 16),
-    waste_pct: Number(s?.waste_pct ?? 10),
-    labour_per_ft: Number(s?.labour_per_ft ?? 0),
-    margin_pct: Number(s?.margin_pct ?? 0),
-    bottom_height_in: Number(s?.bottom_height_in ?? 34),
-    top_height_in: Number(s?.top_height_in ?? 30),
-    top_gap_in: Number(s?.top_gap_in ?? 20),
-    kerf_in: Number(s?.kerf_in ?? 0),
+    bottom_module_in: num("bottom_module_in", 24),
+    top_module_in: num("top_module_in", 24),
+    bottom_depth_in: num("bottom_depth_in", 24),
+    top_depth_in: num("top_depth_in", 16),
+    waste_pct: num("waste_pct", 0),
+    labour_per_ft: num("labour_per_ft", 0),
+    margin_pct: num("margin_pct", 0),
+    bottom_height_in: num("bottom_height_in", 35.43),
+    top_height_in: num("top_height_in", 35.43),
+    top_gap_in: num("top_gap_in", 24),
+    kerf_in: num("kerf_in", 0),
+    cabinet_min_in: num("cabinet_min_in", 12),
+    cabinet_max_in: num("cabinet_max_in", 36),
+    single_door_max_in: num("single_door_max_in", 18),
+    leg_height_in: num("leg_height_in", 4),
+    door_gap_in: num("door_gap_in", 0.08),
+    runner_clearance_in: num("runner_clearance_in", 0.5),
+    shelf_setback_in: num("shelf_setback_in", 1),
+    tile_trim_in: num("tile_trim_in", 1),
   };
   return { materials, parts, settings };
 }

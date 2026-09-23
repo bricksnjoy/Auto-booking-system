@@ -1,14 +1,34 @@
 "use client";
 
-import { useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { useId, useRef, useState, type ReactNode } from "react";
 import type { BoardLayout } from "@/lib/cutting";
-import { SHAPE_WALLS, type EstimateInput, type EstimateResult, type Group, type Settings } from "@/lib/estimator";
+import type { CutRow, EstimateResult, Group } from "@/lib/estimator";
+import { planPoint, WALL_NAME, type Run, type WallId } from "@/lib/kitchen";
+import { hingeLeft } from "@/lib/kitchen-model";
+
+const Kitchen3D = dynamic(() => import("./kitchen-3d").then((m) => m.Kitchen3D), {
+  ssr: false,
+  loading: () => <div className="h-[520px] animate-pulse rounded-lg bg-[var(--hover)]" />,
+});
 
 const INK = "#1b2330";
 const NAVY = "#0b1f3a";
 const MUTED = "#6b7686";
-const FILL_BOTTOM = "#dfe6ef";
-const FILL_TOP = "#eef2f7";
+const LINE = "#aab2bd";
+const FILL = {
+  door: "#dfe6ef",
+  drawer: "#e6ebf2",
+  blind: "#fff4d6",
+  carcass: "#efe6d6",
+  back: "#f8f5ef",
+  worktop: "#e7e2d8",
+  tile: "#f7f8fa",
+  skirting: "#c9ced6",
+  opening: "#f2f4f7",
+  return: "#e9ecf0",
+  top: "#eef2f7",
+};
 
 const f1 = (n: number) => Number(n.toFixed(1)).toString();
 const ftIn = (inches: number) => {
@@ -16,63 +36,81 @@ const ftIn = (inches: number) => {
   const rest = Math.round((inches - ft * 12) * 10) / 10;
   return rest ? `${ft}' ${rest}"` : `${ft}'`;
 };
+const mm = (inches: number) => Math.round(inches * 25.4);
+const TALL = /fridge|freezer|refrig|tall|larder/i;
 
-type Tab = "plan" | "elevations" | "cutting";
+type Tab = "plan" | "elevations" | "3d" | "cutting" | "cutlist";
+type View = "front" | "inside";
+const TABS: [Tab, string][] = [
+  ["plan", "Plan"],
+  ["elevations", "Elevations"],
+  ["3d", "3D"],
+  ["cutting", "Cutting layout"],
+  ["cutlist", "Cut list"],
+];
+const WALLS: WallId[] = ["left", "back", "right"];
+const WALL_TITLE: Record<WallId, string> = { back: "Back wall", left: "Left wall", right: "Right wall" };
 
 /**
- * Drawings of the job: the kitchen from above, each wall from the front, and
- * how every board is cut. Each can be saved as an SVG, or all of them printed
- * or saved as one PDF.
+ * Drawings of the job, all measured from the real layout: the kitchen from
+ * above, each wall from the front and with the doors off, a 3D model, and how
+ * every board is cut. Each can be saved on its own, or all of them as one PDF.
  */
-export function Drawings({
-  input,
-  result,
-  settings,
-  name,
-}: {
-  input: EstimateInput;
-  result: EstimateResult;
-  settings: Settings;
-  name: string;
-}) {
+export function Drawings({ result, name }: { result: EstimateResult; name: string }) {
   const [tab, setTab] = useState<Tab>("plan");
-  const [elevView, setElevView] = useState<View>("front");
+  const [view, setView] = useState<View>("front");
+  const [preparing, setPreparing] = useState(false);
+  const [board, setBoard] = useState<string | null>(null);
   const allRef = useRef<HTMLDivElement>(null);
   if (!result.groups.length) return null;
-  const wallCount = Math.max(...result.groups.map((g) => SHAPE_WALLS[g.shape]));
 
-  const drawings = {
-    plan: result.groups.map((g) => (
-      <Figure key={g.group} title={`${g.group === "bottom" ? "Bottom" : "Top"} cabinets — plan`}
-        file={`${slug(name)}-${g.group}-plan`}>
-        <Plan input={input} group={g.group} settings={settings} />
+  const file = slug(name);
+  const walls = WALLS.filter((w) => result.layout.runs.some((r) => r.wallId === w && r.length > 0));
+  const plans = result.groups.map((g) => (
+    <Figure key={g.group} title={`Plan — ${g.group === "bottom" ? "bottom" : "top"} cabinets`} file={`${file}-${g.group}-plan`}>
+      <Plan result={result} group={g.group} />
+    </Figure>
+  ));
+  const elevations = (v: View, download = true) =>
+    walls.map((w) => (
+      <Figure key={`${w}-${v}`} title={`${WALL_TITLE[w]} — ${v === "front" ? "front" : "inside, doors off"}`}
+        file={download ? `${file}-${w}-wall-${v}` : ""}>
+        <Elevation result={result} wallId={w} view={v} />
       </Figure>
-    )),
-    elevations: (["front", "inside"] as View[]).map((v) =>
-      Array.from({ length: wallCount }, (_, wall) => (
-        <Figure key={`${v}-${wall}`} title={`Wall ${"ABC"[wall]} — ${v === "front" ? "front" : "inside"}`}
-          file={`${slug(name)}-wall-${"abc"[wall]}-${v}`}>
-          <WallElevation input={input} result={result} wall={wall} settings={settings} view={v} />
-        </Figure>
-      )),
-    ),
-    cutting: result.layouts.flatMap((l) =>
+    ));
+  const sheets = (download = true, only: string | null = null) =>
+    result.layouts.filter((l) => !only || l.material_id === only).flatMap((l) =>
       l.sheets.map((_, i) => (
-        <Figure key={`${l.material_id}-${i}`} title={`${l.name} — sheet ${i + 1} of ${l.sheets.length}`}
-          file={`${slug(name)}-${slug(l.name)}-sheet-${i + 1}`}>
+        <Figure key={`${l.material_id}-${i}`} kind="sheet" title={`${l.name} — sheet ${i + 1} of ${l.sheets.length}`}
+          file={download ? `${file}-${slug(l.name)}-sheet-${i + 1}` : ""}>
           <CutSheet layout={l} index={i} />
         </Figure>
       )),
-    ),
-  };
+    );
 
-  function printAll() {
-    const svgs = allRef.current?.querySelectorAll<HTMLElement>("[data-figure]") ?? [];
-    const pages = [...svgs]
-      .map((el) => `<section class="page"><h2>${el.dataset.title}</h2>${el.querySelector("svg")?.outerHTML ?? ""}</section>`)
-      .join("");
+  async function printAll() {
+    // opened straight away, while the click still counts, then filled in
     const w = window.open("", "_blank");
     if (!w) return;
+    w.document.write(`<!doctype html><title>Preparing…</title><p style="font:14px sans-serif;padding:24px">Preparing the drawings…</p>`);
+    setPreparing(true);
+    let shots: { doors: string; open: string } | null = null;
+    try {
+      shots = (await import("./kitchen-3d")).snapshots(result);
+    } catch {
+      shots = null;
+    }
+    setPreparing(false);
+    const figs = [...(allRef.current?.querySelectorAll<HTMLElement>("[data-figure]") ?? [])];
+    const page = (el: HTMLElement) =>
+      `<section class="page"><h2>${esc(el.dataset.title ?? "")}</h2>${el.querySelector("svg")?.outerHTML ?? ""}</section>`;
+    const drawings = figs.filter((f) => f.dataset.kind !== "sheet").map(page).join("");
+    const cutting = figs.filter((f) => f.dataset.kind === "sheet").map(page).join("");
+    const model = shots
+      ? `<section class="page"><h2>3D — doors on</h2><img src="${shots.doors}" alt=""></section>` +
+        `<section class="page"><h2>3D — doors off</h2><img src="${shots.open}" alt=""></section>`
+      : "";
+    w.document.open();
     w.document.write(`<!doctype html><html><head><title>${esc(name || "Kitchen cabinets")} — drawings</title>
       <style>
         @page { size: A4 landscape; margin: 10mm; }
@@ -81,11 +119,18 @@ export function Drawings({
         .page { page-break-after: always; break-after: page; }
         .page:last-child { page-break-after: auto; break-after: auto; }
         h2 { font-size: 11pt; margin: 0 0 3mm; }
-        svg { width: 100%; height: auto; max-height: 165mm; }
+        svg, img { display: block; width: 100%; height: auto; max-height: 165mm; object-fit: contain; }
+        table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+        th { text-align: left; color: ${MUTED}; font-weight: 500; border-bottom: 1px solid #ccd; padding: 1.2mm 2mm; }
+        td { border-bottom: 1px solid #e3e6ea; padding: 1.2mm 2mm; vertical-align: top; }
+        td.n { text-align: right; white-space: nowrap; }
+        ul { font-size: 9.5pt; padding-left: 5mm; margin: 0; } li { margin: 0 0 1.5mm; }
       </style></head><body>
-      <header><h1>${esc(name || "Kitchen cabinets")}</h1><p>Spruce &amp; Co · ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} · all sizes in inches</p></header>
-      ${pages}
-      <script>window.onload = () => { window.print(); };</script>
+      <header><h1>${esc(name || "Kitchen cabinets")}</h1><p>Spruce &amp; Co · ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })} · all sizes in inches unless marked</p></header>
+      ${notesPage(result)}
+      ${drawings}${model}${cutting}
+      ${cutListPage(result.cutList)}
+      <script>window.onload = () => { setTimeout(() => window.print(), 300); };</script>
       </body></html>`);
     w.document.close();
   }
@@ -95,24 +140,24 @@ export function Drawings({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3.5">
         <h2 className="text-sm font-semibold">Drawings</h2>
         <div className="flex flex-wrap items-center gap-2">
-          <div role="tablist" className="inline-flex rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
-            {(["plan", "elevations", "cutting"] as Tab[]).map((t) => (
+          <div role="tablist" className="inline-flex flex-wrap rounded-lg border border-[var(--border)] p-0.5 text-xs font-medium">
+            {TABS.map(([t, text]) => (
               <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
                 className={`rounded-md px-3 py-1.5 ${tab === t ? "bg-[var(--brand)] text-white" : "text-[var(--muted)] hover:text-[var(--text)]"}`}>
-                {t === "plan" ? "Plan" : t === "elevations" ? "Elevations" : "Cutting layout"}
+                {text}
               </button>
             ))}
           </div>
-          <button type="button" onClick={printAll}
-            className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--brand-hover)]">
-            Download all (PDF)
+          <button type="button" onClick={printAll} disabled={preparing}
+            className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--brand-hover)] disabled:opacity-60">
+            {preparing ? "Preparing…" : "Download all (PDF)"}
           </button>
         </div>
       </div>
 
       {tab === "cutting" && result.layouts.some((l) => l.oversize.length) && (
         <p className="mx-5 mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Some pieces are bigger than their board either way round:{" "}
+          Some pieces are bigger than their sheet either way round:{" "}
           {result.layouts.flatMap((l) => l.oversize.map((p) => `${p.label} ${f1(p.w)}×${f1(p.h)}in on ${l.name}`)).join("; ")}.
         </p>
       )}
@@ -121,30 +166,51 @@ export function Drawings({
         <div className="flex items-center gap-2 px-5 pt-4 text-xs">
           <span className="text-[var(--muted)]">Show</span>
           {(["front", "inside"] as View[]).map((v) => (
-            <button key={v} type="button" onClick={() => setElevView(v)} aria-pressed={elevView === v}
-              className={`rounded-full px-3 py-1 font-medium ${elevView === v ? "bg-[var(--brand)] text-white" : "border border-[var(--border)] text-[var(--muted)]"}`}>
-              {v === "front" ? "Front" : "Inside"}
+            <button key={v} type="button" onClick={() => setView(v)} aria-pressed={view === v}
+              className={`rounded-full px-3 py-1 font-medium ${view === v ? "bg-[var(--brand)] text-white" : "border border-[var(--border)] text-[var(--muted)]"}`}>
+              {v === "front" ? "Front" : "Inside — doors off"}
             </button>
           ))}
         </div>
       )}
 
-      <div className="grid gap-5 px-5 py-4 xl:grid-cols-2">
-        {tab === "elevations" ? drawings.elevations[elevView === "front" ? 0 : 1] : drawings[tab]}
+      <div className="px-5 py-4">
+        {tab === "plan" && <div className="grid gap-5 xl:grid-cols-2">{plans}</div>}
+        {tab === "elevations" && <div className="grid gap-5 xl:grid-cols-2">{elevations(view)}</div>}
+        {tab === "3d" && <Kitchen3D result={result} file={file} />}
+        {tab === "cutting" && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-[var(--muted)]">Show</span>
+              {[{ id: null, text: "All" }, ...result.layouts.map((l) => ({ id: l.material_id as string | null, text: `${l.name} (${l.sheets.length})` }))].map((o) => {
+                const on = (board && result.layouts.some((l) => l.material_id === board) ? board : null) === o.id;
+                return (
+                  <button key={o.id ?? "all"} type="button" onClick={() => setBoard(o.id)} aria-pressed={on}
+                    className={`rounded-full px-3 py-1 font-medium ${on ? "bg-[var(--brand)] text-white" : "border border-[var(--border)] text-[var(--muted)]"}`}>
+                    {o.text}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="grid gap-5 xl:grid-cols-2">{sheets(true, board && result.layouts.some((l) => l.material_id === board) ? board : null)}</div>
+          </div>
+        )}
+        {tab === "cutlist" && <CutListTable rows={result.cutList} file={file} />}
       </div>
 
       {/* every drawing, off screen, so "Download all" prints the lot whichever tab is open */}
       <div ref={allRef} className="hidden" aria-hidden="true">
-        {drawings.plan}
-        {drawings.elevations.flat()}
-        {drawings.cutting}
+        {plans}
+        {elevations("front", false)}
+        {elevations("inside", false)}
+        {sheets(false)}
       </div>
     </section>
   );
 }
 
-function Figure({ title, file, children }: { title: string; file: string; children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
+function Figure({ title, file, kind, children }: { title: string; file: string; kind?: string; children: ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
   function download() {
     const svg = ref.current?.querySelector("svg");
     if (!svg) return;
@@ -156,416 +222,641 @@ function Figure({ title, file, children }: { title: string; file: string; childr
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
   return (
-    <figure ref={ref} data-figure data-title={title} className="rounded-lg border border-[var(--border)] bg-white p-3">
+    <figure ref={ref} data-figure data-kind={kind} data-title={title} className="min-w-0 rounded-lg border border-[var(--border)] bg-white p-3">
       <figcaption className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-[#1b2330]">
         {title}
-        <button type="button" onClick={download} className="text-[var(--brand)] hover:underline">Download SVG</button>
+        {file && <button type="button" onClick={download} className="text-[var(--brand)] hover:underline">Download SVG</button>}
       </figcaption>
       {children}
     </figure>
   );
 }
 
-/* ─────────────── plan: the kitchen from above ─────────────── */
+/* ─────────────── dimension lines ─────────────── */
 
-interface Strip {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  /** modules run along this axis */
-  along: "x" | "y";
-}
-
-function Plan({ input, group, settings }: { input: EstimateInput; group: Group; settings: Settings }) {
-  const gi = input[group];
-  const unitToIn = input.unit === "ft" ? 12 : input.unit === "cm" ? 1 / 2.54 : 1;
-  const runs = gi.runs.slice(0, SHAPE_WALLS[gi.shape]).map((v) => (Number(v) || 0) * unitToIn);
-  const D = group === "bottom" ? settings.bottom_depth_in : settings.top_depth_in;
-  const mod = group === "bottom" ? settings.bottom_module_in : settings.top_module_in;
-  const [a = 0, b = 0, c = 0] = runs;
-
-  // walls (as lines) and the cabinet strips standing against them
-  let walls: [number, number, number, number, string][] = [];
-  let strips: Strip[] = [];
-  if (gi.shape === "I") {
-    walls = [[0, 0, a, 0, `A · ${ftIn(a)}`]];
-    strips = [{ x: 0, y: 0, w: a, h: D, along: "x" }];
-  } else if (gi.shape === "L") {
-    walls = [[0, 0, a, 0, `A · ${ftIn(a)}`], [0, 0, 0, b, `B · ${ftIn(b)}`]];
-    strips = [{ x: 0, y: 0, w: a, h: D, along: "x" }, { x: 0, y: D, w: D, h: Math.max(b - D, 0), along: "y" }];
-  } else if (gi.shape === "U") {
-    walls = [[0, 0, 0, a, `A · ${ftIn(a)}`], [0, 0, b, 0, `B · ${ftIn(b)}`], [b, 0, b, c, `C · ${ftIn(c)}`]];
-    strips = [
-      { x: 0, y: D, w: D, h: Math.max(a - D, 0), along: "y" },
-      { x: 0, y: 0, w: b, h: D, along: "x" },
-      { x: b - D, y: D, w: D, h: Math.max(c - D, 0), along: "y" },
-    ];
-  }
-  const W = Math.max(gi.shape === "U" ? b : a, D) || 1;
-  const H = Math.max(gi.shape === "L" ? b : gi.shape === "U" ? Math.max(a, c) : D, D) || 1;
-  const pad = Math.max(W, H) * 0.12;
-  const fs = Math.max(W, H) / 38;
-
-  return (
-    <svg viewBox={`${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}`} xmlns="http://www.w3.org/2000/svg" role="img"
-      aria-label={`${group} cabinets plan`} style={{ width: "100%", height: "auto", background: "#fff" }}>
-      {strips.map((s, i) => (
-        <g key={i}>
-          <rect x={s.x} y={s.y} width={s.w} height={s.h} fill={group === "bottom" ? FILL_BOTTOM : FILL_TOP}
-            stroke={NAVY} strokeWidth={fs / 8} strokeDasharray={group === "top" ? `${fs / 2} ${fs / 3}` : undefined} />
-          {/* module joints every 2ft */}
-          {Array.from({ length: Math.max(0, Math.floor(((s.along === "x" ? s.w : s.h) - 0.01) / mod)) }, (_, k) => {
-            const t = (k + 1) * mod;
-            return s.along === "x" ? (
-              <line key={k} x1={s.x + t} y1={s.y} x2={s.x + t} y2={s.y + s.h} stroke={NAVY} strokeWidth={fs / 14} />
-            ) : (
-              <line key={k} x1={s.x} y1={s.y + t} x2={s.x + s.w} y2={s.y + t} stroke={NAVY} strokeWidth={fs / 14} />
-            );
-          })}
-        </g>
-      ))}
-      {walls.map(([x1, y1, x2, y2, text], i) => {
-        const horizontal = y1 === y2;
-        const offset = fs * 1.4;
-        // walls sit behind the cabinets; their labels sit outside the room
-        const outward = horizontal ? -1 : x1 === 0 ? -1 : 1;
-        return (
-          <g key={i}>
-            <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={INK} strokeWidth={fs / 2.2} strokeLinecap="square" />
-            <text
-              x={horizontal ? (x1 + x2) / 2 : x1 + outward * offset}
-              y={horizontal ? y1 - offset : (y1 + y2) / 2}
-              fontSize={fs} fill={INK} textAnchor="middle" dominantBaseline="middle"
-              transform={horizontal ? undefined : `rotate(-90 ${x1 + outward * offset} ${(y1 + y2) / 2})`}>
-              Wall {text}
-            </text>
-          </g>
-        );
-      })}
-      <text x={W / 2} y={H + pad * 0.7} fontSize={fs * 0.8} fill={MUTED} textAnchor="middle">
-        {group === "bottom" ? "Bottom" : "Top"} cabinets {f1(D)}in deep · joints every {f1(mod)}in
-      </text>
-    </svg>
-  );
-}
-
-/* ─────────────── elevation: one wall from the front ─────────────── */
-
-type View = "front" | "inside";
-
-const TILE = 600 / 25.4; // a 600mm tile, in inches
-const MARBLE_IN = 15 / 25.4; // a 15mm slab
-const PANEL = 0.75; // carcass board, drawn at 3/4in so it reads at this scale
-const FILL_TILE = "#f3f5f8";
-const FILL_MARBLE = "#e7e2d8";
-const FILL_INSIDE = "#f7f4ee";
-
-/**
- * One wall, floor to top cabinets: bottom cabinets on their plinth, the marble
- * top, a row of tiles, and the top cabinets — from the front, or with the
- * doors off to show the shelves and drawer boxes inside.
- */
-function WallElevation({
-  input,
-  result,
-  wall,
-  settings,
-  view,
-}: {
-  input: EstimateInput;
-  result: EstimateResult;
-  wall: number;
-  settings: Settings;
-  view: View;
+/** A dimension between two points, slashed at the ends, with extension lines back to what it measures. */
+function Dim({ a, b, fs, text, side = 1, ext }: {
+  a: [number, number];
+  b: [number, number];
+  fs: number;
+  text: string;
+  /** which side of the line the text sits: 1 below or right, -1 above or left */
+  side?: 1 | -1;
+  ext?: [[number, number], [number, number]];
 }) {
-  const unitToIn = input.unit === "ft" ? 12 : input.unit === "cm" ? 1 / 2.54 : 1;
-  const runOf = (g: Group) => {
-    const gr = result.groups.find((x) => x.group === g);
-    if (!gr || wall >= SHAPE_WALLS[gr.shape]) return null;
-    return { gr, len: (Number(input[g].runs[wall]) || 0) * unitToIn };
-  };
-  const bottom = runOf("bottom");
-  const top = runOf("top");
-
-  const topH = top ? settings.top_height_in : 0;
-  const gap = bottom ? settings.top_gap_in : 0;
-  const marble = bottom ? Math.max(MARBLE_IN, 1) : 0;
-  const bottomH = bottom ? settings.bottom_height_in : 0;
-  const yTiles = topH;
-  const yMarble = topH + gap;
-  const yBottom = yMarble + marble;
-  const H = yBottom + bottomH || 1;
-  const W = Math.max(bottom?.len ?? 0, top?.len ?? 0) || 1;
-  const pad = Math.max(W, H) * 0.13;
-  const fs = Math.max(W, H) / 42;
-
-  // drawers stack three to a module, filling from wall A onward
-  const drawerModulesBefore = (g: Group) =>
-    input[g].runs
-      .slice(0, wall)
-      .reduce((s, r) => s + Math.max(1, Math.round(((Number(r) || 0) * unitToIn) / (g === "bottom" ? settings.bottom_module_in : settings.top_module_in))), 0);
-
-  const row = (g: Group, len: number, y0: number, h: number) => {
-    const gr = result.groups.find((x) => x.group === g)!;
-    const mod = g === "bottom" ? settings.bottom_module_in : settings.top_module_in;
-    const plinth = g === "bottom" ? 4 : 0;
-    // in an L or U the corner end of a run is blocked by the other run: a closed panel, no doors
-    const ends = cornerEnds(input[g].shape, wall);
-    const depth = g === "bottom" ? settings.bottom_depth_in : settings.top_depth_in;
-    const cl = ends.left ? Math.min(depth, len) : 0;
-    const cr = ends.right ? Math.min(depth, Math.max(len - cl, 0)) : 0;
-    const zone = Math.max(len - cl - cr, 0);
-    const modules = Math.max(1, Math.round(zone / mod));
-    const modW = zone / modules;
-    const before = drawerModulesBefore(g);
-    const drawerModules = Math.ceil(gr.drawers / 3);
-    const shelves = input[g].shelves;
-    const bodyH = h - plinth;
-    const gapF = 0.25;
-
-    return (
-      <g>
-        <rect x={0} y={y0} width={len} height={h} fill={view === "inside" ? FILL_INSIDE : "#fff"} stroke={INK} strokeWidth={fs / 7} />
-        {plinth > 0 && (view === "front" ? (
-          <rect x={0} y={y0 + bodyH} width={len} height={plinth} fill="#c9ced6" stroke={INK} strokeWidth={fs / 12} />
-        ) : (
-          // with the skirting off: the legs
-          <g>
-            <line x1={0} y1={y0 + bodyH} x2={len} y2={y0 + bodyH} stroke={INK} strokeWidth={fs / 10} />
-            {Array.from({ length: modules }, (_, k) => [cl + k * modW + 2, cl + (k + 1) * modW - 3.5]).flat().map((lx, i) => (
-              <rect key={i} x={lx} y={y0 + bodyH} width={1.5} height={plinth} fill={MUTED} />
-            ))}
-          </g>
-        ))}
-        {[cl ? [0, cl] : null, cr ? [len - cr, cr] : null].filter(Boolean).map((c) => {
-          const [cx, cw] = c as number[];
-          if (view === "inside") {
-            // no door, but still shelves inside — reached through the cabinet beside it
-            return (
-              <g key={`corner-${cx}`}>
-                <rect x={cx} y={y0} width={cw} height={bodyH} fill={FILL_INSIDE} stroke={INK} strokeWidth={fs / 10} />
-                {/* the corner cabinet closes the run on its outer side; its inner side is shared */}
-                <rect x={cx === 0 ? cx : cx + cw - PANEL} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                <rect x={cx + PANEL} y={y0 + bodyH - PANEL} width={cw - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                {Array.from({ length: shelves }, (_, sIdx) => {
-                  const sy = y0 + (bodyH * (sIdx + 1)) / (shelves + 1);
-                  return <rect key={sIdx} x={cx + PANEL} y={sy} width={cw - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />;
-                })}
-                <text x={cx + cw / 2} y={y0 + bodyH * 0.18} fontSize={fs * 0.6} fill={MUTED} textAnchor="middle">corner</text>
-              </g>
-            );
-          }
-          return (
-            <g key={`corner-${cx}`}>
-              <rect x={cx} y={y0} width={cw} height={bodyH} fill="#eceff3" stroke={INK} strokeWidth={fs / 10} />
-              <line x1={cx} y1={y0} x2={cx + cw} y2={y0 + bodyH} stroke={MUTED} strokeWidth={fs / 18} />
-              <line x1={cx + cw} y1={y0} x2={cx} y2={y0 + bodyH} stroke={MUTED} strokeWidth={fs / 18} />
-              <text x={cx + cw / 2} y={y0 + bodyH / 2} fontSize={fs * 0.7} fill={INK} textAnchor="middle" dominantBaseline="middle"
-                transform={`rotate(-90 ${cx + cw / 2} ${y0 + bodyH / 2})`}>
-                corner — no door
-              </text>
-            </g>
-          );
-        })}
-        {Array.from({ length: modules }, (_, k) => {
-          const x = cl + k * modW;
-          const isDrawers = before + k < drawerModules;
-          const drawersHere = isDrawers ? Math.min(3, gr.drawers - (before + k) * 3) : 0;
-          if (view === "inside") {
-            return (
-              <g key={k}>
-                {/* neighbours share a side panel: one at each joint, and one to close the run */}
-                <rect x={k === 0 && !cl ? x : x - PANEL / 2} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                {k === modules - 1 && (
-                  <rect x={cr ? x + modW - PANEL / 2 : x + modW - PANEL} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                )}
-                <rect x={x + PANEL} y={y0 + bodyH - PANEL} width={modW - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                <rect x={x + PANEL} y={y0} width={modW - PANEL * 2} height={g === "top" ? PANEL : 3} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                {isDrawers
-                  ? Array.from({ length: drawersHere }, (_, d) => {
-                      const dh = (bodyH - 3) / drawersHere;
-                      const dy = y0 + 3 + d * dh;
-                      return (
-                        <g key={d}>
-                          <rect x={x + PANEL + 0.6} y={dy + dh * 0.25} width={modW - PANEL * 2 - 1.2} height={dh * 0.65}
-                            fill="#fff" stroke={NAVY} strokeWidth={fs / 12} strokeDasharray={`${fs / 3} ${fs / 5}`} />
-                          <text x={x + modW / 2} y={dy + dh * 0.58} fontSize={fs * 0.6} fill={MUTED} textAnchor="middle" dominantBaseline="middle">
-                            drawer box
-                          </text>
-                        </g>
-                      );
-                    })
-                  : Array.from({ length: shelves }, (_, sIdx) => {
-                      const sy = y0 + (bodyH * (sIdx + 1)) / (shelves + 1);
-                      return (
-                        <g key={sIdx}>
-                          <rect x={x + PANEL} y={sy} width={modW - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
-                          {k === 0 && (
-                            <text x={x + modW / 2} y={sy - fs * 0.5} fontSize={fs * 0.6} fill={MUTED} textAnchor="middle">shelf</text>
-                          )}
-                        </g>
-                      );
-                    })}
-              </g>
-            );
-          }
-          return (
-            <g key={k}>
-              {(k > 0 || cl > 0) && <line x1={x} y1={y0} x2={x} y2={y0 + bodyH} stroke={INK} strokeWidth={fs / 10} />}
-              {isDrawers
-                ? Array.from({ length: drawersHere }, (_, d) => {
-                    const dh = bodyH / drawersHere;
-                    return (
-                      <g key={d}>
-                        <rect x={x + gapF} y={y0 + d * dh + gapF} width={modW - gapF * 2} height={dh - gapF * 2} fill={FILL_TOP} stroke={NAVY} strokeWidth={fs / 12} />
-                        <line x1={x + modW * 0.35} y1={y0 + d * dh + dh * 0.3} x2={x + modW * 0.65} y2={y0 + d * dh + dh * 0.3} stroke={NAVY} strokeWidth={fs / 5} strokeLinecap="round" />
-                      </g>
-                    );
-                  })
-                : [0, 1].map((d) => (
-                    <g key={d}>
-                      <rect x={x + d * (modW / 2) + gapF} y={y0 + gapF} width={modW / 2 - gapF * 2} height={bodyH - gapF * 2} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 12} />
-                      <line x1={x + modW / 2 + (d ? 1.2 : -1.2)} y1={y0 + (g === "bottom" ? bodyH * 0.12 : bodyH * 0.72)}
-                        x2={x + modW / 2 + (d ? 1.2 : -1.2)} y2={y0 + (g === "bottom" ? bodyH * 0.27 : bodyH * 0.87)}
-                        stroke={NAVY} strokeWidth={fs / 5} strokeLinecap="round" />
-                    </g>
-                  ))}
-            </g>
-          );
-        })}
-      </g>
-    );
-  };
-
-  // the right-hand chain of heights, floor to top
-  const chain: [number, number, string][] = [];
-  if (top) chain.push([0, topH, `top ${f1(topH)}in`]);
-  if (bottom) {
-    chain.push([yTiles, yMarble, `tiles ${f1(gap)}in`]);
-    chain.push([yBottom, H, `bottom ${f1(bottomH)}in`]);
-  }
-
-  return (
-    <svg viewBox={`${-pad} ${-pad} ${W + pad * 2.4} ${H + pad * 2}`} xmlns="http://www.w3.org/2000/svg" role="img"
-      aria-label={`wall ${"ABC"[wall]} ${view}`} style={{ width: "100%", height: "auto", background: "#fff" }}>
-      {top && row("top", top.len, 0, topH)}
-      {bottom && (
-        <g>
-          {/* the tiled backsplash: 600mm tiles */}
-          <rect x={0} y={yTiles} width={bottom.len} height={gap} fill={FILL_TILE} stroke={MUTED} strokeWidth={fs / 14} />
-          {Array.from({ length: Math.floor(bottom.len / TILE) }, (_, i) => (
-            <line key={`v${i}`} x1={(i + 1) * TILE} y1={yTiles} x2={(i + 1) * TILE} y2={yMarble} stroke={MUTED} strokeWidth={fs / 16} />
-          ))}
-          {Array.from({ length: Math.floor((gap - 0.01) / TILE) }, (_, i) => (
-            <line key={`h${i}`} x1={0} y1={yTiles + (i + 1) * TILE} x2={bottom.len} y2={yTiles + (i + 1) * TILE} stroke={MUTED} strokeWidth={fs / 16} />
-          ))}
-          <text x={bottom.len / 2} y={yTiles + gap / 2} fontSize={fs * 0.8} fill={MUTED} textAnchor="middle" dominantBaseline="middle">
-            wall tiles 600 × 600mm
-          </text>
-          {/* the marble top, overhanging a little */}
-          <rect x={-0.75} y={yMarble} width={bottom.len + 1.5} height={marble} fill={FILL_MARBLE} stroke={INK} strokeWidth={fs / 12} />
-          {row("bottom", bottom.len, yBottom, bottomH)}
-          <Dim x1={0} y1={H + fs * 1.6} x2={bottom.len} y2={H + fs * 1.6} fs={fs} text={`${f1(bottom.len)}in (${ftIn(bottom.len)})`} />
-        </g>
-      )}
-      {top && !bottom && (
-        <Dim x1={0} y1={H + fs * 1.6} x2={top.len} y2={H + fs * 1.6} fs={fs} text={`${f1(top.len)}in (${ftIn(top.len)})`} />
-      )}
-      {chain.map(([y1, y2, t], i) => (
-        <Dim key={i} x1={W + fs * 1.8} y1={y1} x2={W + fs * 1.8} y2={y2} fs={fs} text={t} vertical right />
-      ))}
-      {bottom && (
-        <text x={-fs * 0.6} y={yMarble + marble / 2} fontSize={fs * 0.7} fill={MUTED} textAnchor="end" dominantBaseline="middle">marble 15mm</text>
-      )}
-      <text x={W / 2} y={-fs * 1.2} fontSize={fs * 0.8} fill={MUTED} textAnchor="middle">
-        {view === "inside" ? "doors and skirting off: shelves, drawer boxes and legs" : "indicative door and drawer layout"}
-      </text>
-    </svg>
-  );
-}
-
-function Dim({ x1, y1, x2, y2, fs, text, vertical, right }: {
-  x1: number; y1: number; x2: number; y2: number; fs: number; text: string; vertical?: boolean; right?: boolean;
-}) {
-  const t = fs / 2;
+  const [x1, y1] = a;
+  const [x2, y2] = b;
+  const vertical = Math.abs(x1 - x2) < 1e-6;
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  const k = fs * 0.28;
+  const size = Math.min(fs * 0.78, (len / Math.max(text.length, 1)) * 1.7);
   const mx = (x1 + x2) / 2;
   const my = (y1 + y2) / 2;
+  const tx = vertical ? mx + side * fs * 0.6 : mx;
+  const ty = vertical ? my : my + side * fs * 0.62;
   return (
-    <g stroke={MUTED} strokeWidth={fs / 14}>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} />
-      {vertical ? (
+    <g stroke={MUTED} strokeWidth={fs / 16} fill="none">
+      {ext && (
         <>
-          <line x1={x1 - t} y1={y1} x2={x1 + t} y2={y1} />
-          <line x1={x2 - t} y1={y2} x2={x2 + t} y2={y2} />
-        </>
-      ) : (
-        <>
-          <line x1={x1} y1={y1 - t} x2={x1} y2={y1 + t} />
-          <line x1={x2} y1={y2 - t} x2={x2} y2={y2 + t} />
+          <line x1={ext[0][0]} y1={ext[0][1]} x2={x1} y2={y1} stroke={LINE} strokeWidth={fs / 24} />
+          <line x1={ext[1][0]} y1={ext[1][1]} x2={x2} y2={y2} stroke={LINE} strokeWidth={fs / 24} />
         </>
       )}
-      <text x={vertical ? mx + (right ? fs * 0.8 : -fs * 0.7) : mx} y={vertical ? my : my + fs * 1.2} fontSize={fs * 0.9} fill={INK} stroke="none"
-        textAnchor="middle" dominantBaseline="middle"
-        transform={vertical ? `rotate(-90 ${mx + (right ? fs * 0.8 : -fs * 0.7)} ${my})` : undefined}>
-        {text}
-      </text>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} />
+      <line x1={x1 - k} y1={y1 + k} x2={x1 + k} y2={y1 - k} strokeWidth={fs / 11} stroke={INK} />
+      <line x1={x2 - k} y1={y2 + k} x2={x2 + k} y2={y2 - k} strokeWidth={fs / 11} stroke={INK} />
+      {size >= fs * 0.34 && (
+        <text x={tx} y={ty} fontSize={size} fill={INK} stroke="none" textAnchor="middle" dominantBaseline="middle"
+          transform={vertical ? `rotate(-90 ${tx} ${ty})` : undefined}>
+          {text}
+        </text>
+      )}
     </g>
   );
 }
 
-/**
- * Which end of a wall meets a corner, as seen standing in the kitchen facing
- * that wall. An L runs along wall A with wall B on the left; a U has wall A on
- * the left, B across the back and C on the right.
- */
-function cornerEnds(shape: EstimateInput["bottom"]["shape"], wall: number) {
-  if (shape === "L") return wall === 0 ? { left: true, right: false } : { left: false, right: true };
-  if (shape === "U") {
-    if (wall === 0) return { left: false, right: true };
-    if (wall === 1) return { left: true, right: true };
-    return { left: true, right: false };
+/** Where a chain of dimensions along a run breaks: cabinets, gaps and corners. */
+function chainPoints(run: Run) {
+  const pts = [0, run.length, run.zone[0], run.zone[1]];
+  for (const sg of run.segments) {
+    pts.push(sg.e0, sg.e1);
+    for (const c of sg.cabinets) pts.push(c.e0, c.e1);
   }
-  return { left: false, right: false };
+  for (const o of run.openings) pts.push(o.e0, o.e1);
+  const sorted = pts.filter((p) => p >= -0.01 && p <= run.length + 0.01).sort((a, b) => a - b);
+  return sorted.filter((p, i) => i === 0 || p - sorted[i - 1] > 0.05);
 }
 
-/* ─────────────── cutting layout: one board ─────────────── */
+/* ─────────────── plan: the kitchen from above ─────────────── */
+
+function Plan({ result, group }: { result: EstimateResult; group: Group }) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const { layout, dims, pieces } = result;
+  const runs = layout.runs.filter((r) => r.group === group && r.length > 0);
+  if (!runs.length) return null;
+  const wallT = 4;
+  const has = (id: WallId) => runs.some((r) => r.wallId === id);
+  const isTop = group === "top";
+
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let z0 = Infinity;
+  let z1 = -Infinity;
+  for (const r of runs) {
+    for (const [e, d] of [[0, -wallT], [r.length, -wallT], [0, r.depth + dims.door], [r.length, r.depth + dims.door]]) {
+      const p = planPoint(layout, r, e, d);
+      x0 = Math.min(x0, p.x);
+      x1 = Math.max(x1, p.x);
+      z0 = Math.min(z0, p.z);
+      z1 = Math.max(z1, p.z);
+    }
+  }
+  const fs = Math.max(x1 - x0, z1 - z0, 48) / 40;
+  const pad = fs * 5.2;
+
+  const rect = (r: Run, e0: number, e1: number, d0: number, d1: number) => {
+    const a = planPoint(layout, r, e0, d0);
+    const b = planPoint(layout, r, e1, d1);
+    return { x: Math.min(a.x, b.x), y: Math.min(a.z, b.z), width: Math.abs(b.x - a.x), height: Math.abs(b.z - a.z) };
+  };
+  const at = (r: Run, e: number, d: number): [number, number] => {
+    const p = planPoint(layout, r, e, d);
+    return [p.x, p.z];
+  };
+  const turn = (r: Run, [x, y]: [number, number]) => (r.wallId === "back" ? undefined : `rotate(-90 ${x} ${y})`);
+
+  return (
+    <svg viewBox={`${x0 - pad} ${z0 - pad} ${x1 - x0 + pad * 2} ${z1 - z0 + pad * 2}`} xmlns="http://www.w3.org/2000/svg" role="img"
+      aria-label={`${group} cabinets plan`} style={{ width: "100%", height: "auto", background: "#fff" }} fontFamily="Poppins, Arial, sans-serif">
+      <defs>
+        <pattern id={`w${uid}`} width={fs * 0.6} height={fs * 0.6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2={fs * 0.6} stroke={MUTED} strokeWidth={fs / 14} />
+        </pattern>
+        <pattern id={`b${uid}`} width={fs * 0.9} height={fs * 0.9} patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
+          <rect width={fs * 0.9} height={fs * 0.9} fill={FILL.blind} />
+          <line x1="0" y1="0" x2="0" y2={fs * 0.9} stroke="#d9b75d" strokeWidth={fs / 12} />
+        </pattern>
+      </defs>
+
+      {/* the walls */}
+      {runs.map((r) => {
+        const e0 = r.wallId === "back" && has("left") ? -wallT : 0;
+        const e1 = r.wallId === "back" && has("right") ? r.length + wallT : r.length;
+        return <rect key={`wall${r.index}`} {...rect(r, e0, e1, -wallT, 0)} fill={`url(#w${uid})`} stroke={INK} strokeWidth={fs / 10} />;
+      })}
+
+      {runs.map((r) => (
+        <g key={r.index}>
+          {r.openings.map((o, i) => {
+            const b = rect(r, o.e0, o.e1, 0, r.depth);
+            const c = at(r, (o.e0 + o.e1) / 2, r.depth / 2);
+            return (
+              <g key={`o${i}`}>
+                <rect {...b} fill={FILL.opening} stroke={MUTED} strokeWidth={fs / 14} strokeDasharray={`${fs / 3} ${fs / 5}`} />
+                <line x1={b.x} y1={b.y} x2={b.x + b.width} y2={b.y + b.height} stroke={LINE} strokeWidth={fs / 20} />
+                <line x1={b.x + b.width} y1={b.y} x2={b.x} y2={b.y + b.height} stroke={LINE} strokeWidth={fs / 20} />
+                <text x={c[0]} y={c[1]} fontSize={Math.min(fs * 0.62, (o.e1 - o.e0) / 5)} fill={INK} textAnchor="middle" dominantBaseline="middle" transform={turn(r, c)}>
+                  {o.label}{o.worktop ? " (under worktop)" : ""}
+                </text>
+              </g>
+            );
+          })}
+          {r.segments.map((sg, si) =>
+            sg.filler ? (
+              <rect key={`f${si}`} {...rect(r, sg.e0, sg.e1, r.depth, r.depth + dims.door)} fill={FILL.return} stroke={INK} strokeWidth={fs / 14} />
+            ) : (
+              sg.cabinets.map((c) => {
+                const pitch = c.e1 - c.e0;
+                const code = at(r, (c.e0 + c.e1) / 2, r.depth * 0.42);
+                const what = at(r, (c.e0 + c.e1) / 2, r.depth * 0.72);
+                const atLeft = c.e0 <= r.zone[0] + 0.01;
+                return (
+                  <g key={c.code}>
+                    <rect {...rect(r, c.e0, c.e1, 0, r.depth)} fill={c.kind === "blind" ? `url(#b${uid})` : isTop ? FILL.top : FILL.door}
+                      stroke={NAVY} strokeWidth={fs / 12} strokeDasharray={isTop ? `${fs / 2.5} ${fs / 5}` : undefined} />
+                    {c.kind !== "blind" && (
+                      <rect {...rect(r, c.e0 + dims.gap / 2, c.e1 - dims.gap / 2, r.depth, r.depth + dims.door)}
+                        fill={c.kind === "drawers" ? MUTED : NAVY} />
+                    )}
+                    {c.kind === "blind" && c.filler > 0 && (
+                      <rect {...(atLeft ? rect(r, c.e1 - c.filler, c.e1, r.depth, r.depth + dims.door) : rect(r, c.e0, c.e0 + c.filler, r.depth, r.depth + dims.door))}
+                        fill={MUTED} />
+                    )}
+                    <text x={code[0]} y={code[1]} fontSize={Math.min(fs * 0.72, pitch / 3.4)} fontWeight={600} fill={INK} textAnchor="middle"
+                      dominantBaseline="middle" transform={turn(r, code)}>
+                      {c.code}
+                    </text>
+                    <text x={what[0]} y={what[1]} fontSize={Math.min(fs * 0.55, pitch / 4.4)} fill={MUTED} textAnchor="middle"
+                      dominantBaseline="middle" transform={turn(r, what)}>
+                      {c.kind === "blind" ? "blind corner" : c.kind === "drawers" ? `${c.drawers} drawers` : `${c.doors} door${c.doors > 1 ? "s" : ""}`}
+                    </text>
+                  </g>
+                );
+              })
+            ),
+          )}
+          {/* where the worktop is joined */}
+          {!isTop &&
+            pieces
+              .filter((p) => p.part === "worktop" && p.span?.run === r.index)
+              .filter((p) => r.worktop.every(([, b]) => Math.abs(b - p.span!.e1) > 0.05))
+              .map((p, i) => {
+                const a = at(r, p.span!.e1, 0);
+                const b = at(r, p.span!.e1, dims.worktop_depth);
+                return <line key={`j${i}`} x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="#b0772b" strokeWidth={fs / 7} strokeDasharray={`${fs / 3} ${fs / 6}`} />;
+              })}
+
+          {/* outside the wall: each cabinet and gap, then the whole wall */}
+          {(() => {
+            const pts = chainPoints(r);
+            const o1 = wallT + fs * 1.3;
+            const o2 = wallT + fs * 3.2;
+            const side: 1 | -1 = r.wallId === "right" ? 1 : -1;
+            return (
+              <g>
+                {pts.slice(1).map((p, i) => (
+                  <Dim key={i} a={at(r, pts[i], -o1)} b={at(r, p, -o1)} fs={fs} side={side} text={f1(p - pts[i])} />
+                ))}
+                <Dim a={at(r, 0, -o2)} b={at(r, r.length, -o2)} fs={fs} side={side}
+                  text={`Wall ${r.letter} · ${WALL_NAME[r.wallId]} · ${f1(r.length)}in (${ftIn(r.length)})`}
+                  ext={[at(r, 0, -wallT), at(r, r.length, -wallT)]} />
+              </g>
+            );
+          })()}
+        </g>
+      ))}
+
+      <text x={x0} y={z1 + pad * 0.62} fontSize={fs * 0.62} fill={MUTED}>
+        {isTop ? "Top" : "Bottom"} cabinets {f1(runs[0].depth)}in deep · codes: {isTop ? "T" : "B"} + wall letter + number from the left
+        {!isTop && pieces.some((p) => p.part === "worktop") ? " · orange dashes: worktop joints" : ""}
+      </text>
+    </svg>
+  );
+}
+
+/* ─────────────── elevation: one wall, floor to top cabinets ─────────────── */
+
+/**
+ * One wall as seen standing in the kitchen facing it: the bottom cabinets on
+ * their legs, the worktop and tiles as they are cut, and the top cabinets —
+ * from the front, or with the doors and skirting off to show the carcass,
+ * shelves and drawer boxes inside.
+ */
+function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: WallId; view: View }) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const { layout, dims, pieces } = result;
+  const runs = layout.runs.filter((r) => r.wallId === wallId && r.length > 0);
+  if (!runs.length) return null;
+  const h = layout.heights;
+  const W = Math.max(...runs.map((r) => r.length));
+  const HT = Math.max(h.total, 12);
+  const fs = Math.max(W, HT) / 44;
+  const bottom = runs.find((r) => r.group === "bottom");
+  const top = runs.find((r) => r.group === "top");
+  // the left wall's corner is at its right end: its runs line up there
+  const off = (r: Run) => (wallId === "left" ? W - r.length : 0);
+  const X = (r: Run, e: number) => off(r) + e;
+  const Y = (y: number) => HT - y;
+  const inside = view === "inside";
+  const padL = fs * 2;
+  const padR = fs * 8.5;
+  const padT = fs * (top && bottom ? 4.6 : 2.6);
+  const padB = fs * 6.4;
+
+  const box = (r: Run, e0: number, e1: number, y0: number, y1: number) => ({
+    x: X(r, e0),
+    y: Y(y1),
+    width: Math.max(0, e1 - e0),
+    height: Math.max(0, y1 - y0),
+  });
+  const returnOf = (r: Run, side: 0 | 1) => {
+    const other: WallId = r.wallId === "back" ? (side === 0 ? "left" : "right") : "back";
+    return layout.runs.find((x) => x.group === r.group && x.wallId === other);
+  };
+
+  const drawRun = (r: Run) => {
+    const g = r.group;
+    const D = r.depth;
+    const H = r.height;
+    const y0 = r.y0;
+    const t = dims.t[g];
+    const base = dims.base[g];
+    const cap = dims.cap[g];
+    const gap = dims.gap;
+    const stroke = fs / 12;
+    const thin = fs / 20;
+    const out: ReactNode[] = [];
+
+    for (const sg of r.segments) {
+      if (sg.filler) {
+        out.push(
+          <g key={`f${sg.e0}`}>
+            <rect {...box(r, sg.e0, sg.e1, y0, y0 + H)} fill={FILL.return} stroke={INK} strokeWidth={stroke} />
+            <line x1={X(r, sg.e0)} y1={Y(y0)} x2={X(r, sg.e1)} y2={Y(y0 + H)} stroke={LINE} strokeWidth={fs / 18} />
+          </g>,
+        );
+        continue;
+      }
+      if (inside) {
+        out.push(<rect key={`bk${sg.e0}`} {...box(r, sg.e0, sg.e1, y0, y0 + H)} fill={FILL.back} stroke={INK} strokeWidth={stroke} />);
+        if (base > 0) out.push(<rect key={`ba${sg.e0}`} {...box(r, sg.e0, sg.e1, y0, y0 + base)} fill={FILL.carcass} stroke={NAVY} strokeWidth={thin} />);
+        if (cap > 0) out.push(<rect key={`ca${sg.e0}`} {...box(r, sg.e0, sg.e1, y0 + H - cap, y0 + H)} fill={FILL.carcass} stroke={NAVY} strokeWidth={thin} />);
+        if (g === "top" && dims.pelmet > 0) {
+          out.push(<rect key={`pe${sg.e0}`} {...box(r, sg.e0, sg.e1, y0 + H - cap - dims.pelmet, y0 + H - cap)} fill="#e4d8c2" stroke={NAVY} strokeWidth={thin} />);
+        }
+        for (const p of sg.partitions) {
+          out.push(<rect key={`p${p}`} {...box(r, p, p + t, y0 + base, y0 + H - cap)} fill={FILL.carcass} stroke={NAVY} strokeWidth={thin} />);
+        }
+      }
+      sg.cabinets.forEach((c, i) => {
+        const left = sg.partitions[i] + t;
+        const right = sg.partitions[i + 1];
+        const pitch = c.e1 - c.e0;
+        const floor = y0 + base;
+        const ceil = y0 + H - cap;
+        if (inside) {
+          if (c.kind !== "drawers") {
+            const n = dims.shelves[g];
+            for (let k = 1; k <= n; k++) {
+              const yc = floor + ((ceil - floor) * k) / (n + 1);
+              out.push(<rect key={`s${c.code}${k}`} {...box(r, left + 0.03, right - 0.03, yc - t / 2, yc + t / 2)} fill={FILL.carcass} stroke={NAVY} strokeWidth={thin} />);
+            }
+          } else {
+            const slot = H / c.drawers;
+            for (let j = 0; j < c.drawers; j++) {
+              const slotTop = y0 + H - j * slot;
+              const by = Math.max(floor + 0.5, slotTop - slot + 1);
+              const bh = Math.min(10, Math.max(3, slot - gap - 2));
+              out.push(
+                <rect key={`db${c.code}${j}`} {...box(r, left + dims.runner_clearance, right - dims.runner_clearance, by, Math.min(by + bh, slotTop - gap))}
+                  fill="#fff" stroke={NAVY} strokeWidth={fs / 16} strokeDasharray={`${fs / 3} ${fs / 5}`} />,
+              );
+            }
+          }
+          out.push(
+            <text key={`l${c.code}`} x={X(r, left) + fs * 0.3} y={Y(ceil - (g === "top" ? dims.pelmet : 0)) + fs * 0.8}
+              fontSize={Math.min(fs * 0.6, pitch / 4)} fontWeight={600} fill={INK}>
+              {c.code}{c.kind === "blind" ? " · blind corner" : ""}
+            </text>,
+          );
+          return;
+        }
+        // from the front: doors and drawers
+        if (c.kind === "blind") {
+          out.push(<rect key={`bl${c.code}`} {...box(r, c.e0, c.e1, y0, y0 + H)} fill={`url(#b${uid})`} stroke={NAVY} strokeWidth={stroke} />);
+          if (c.filler > 0) {
+            const e0 = c.e0 <= r.zone[0] + 0.01 ? c.e1 - c.filler : c.e0;
+            out.push(<rect key={`fi${c.code}`} {...box(r, e0 + gap / 2, e0 + c.filler - gap / 2, y0 + gap / 2, y0 + H - gap / 2)} fill={FILL.return} stroke={NAVY} strokeWidth={stroke} />);
+          }
+          return;
+        }
+        if (c.kind === "doors") {
+          const w = pitch / c.doors;
+          for (let k = 0; k < c.doors; k++) {
+            const e0 = c.e0 + k * w + gap / 2;
+            const e1 = c.e0 + (k + 1) * w - gap / 2;
+            const ya = y0 + gap / 2;
+            const yb = y0 + H - gap / 2;
+            const openRight = c.doors === 2 ? k === 0 : hingeLeft(r, c.e0, c.e1);
+            const he = openRight ? e1 - 1.4 : e0 + 1.4;
+            const [ha, hb] = g === "bottom" ? [yb - 6.5, yb - 2] : [ya + 2, ya + 6.5];
+            // the dashed V points to the hinges
+            const hingeX = openRight ? X(r, e0) : X(r, e1);
+            const freeX = openRight ? X(r, e1) : X(r, e0);
+            out.push(
+              <g key={`d${c.code}${k}`}>
+                <rect {...box(r, e0, e1, ya, yb)} fill={g === "top" ? FILL.top : FILL.door} stroke={NAVY} strokeWidth={stroke} />
+                <polyline points={`${freeX},${Y(yb)} ${hingeX},${Y((ya + yb) / 2)} ${freeX},${Y(ya)}`} fill="none" stroke={LINE}
+                  strokeWidth={fs / 22} strokeDasharray={`${fs / 3} ${fs / 4}`} />
+                <line x1={X(r, he)} y1={Y(ha)} x2={X(r, he)} y2={Y(hb)} stroke={NAVY} strokeWidth={fs / 4.5} strokeLinecap="round" />
+              </g>,
+            );
+          }
+        } else {
+          const slot = H / c.drawers;
+          const mid = (c.e0 + c.e1) / 2;
+          const hw = Math.min(3, pitch / 5);
+          for (let j = 0; j < c.drawers; j++) {
+            const slotTop = y0 + H - j * slot;
+            out.push(
+              <g key={`dr${c.code}${j}`}>
+                <rect {...box(r, c.e0 + gap / 2, c.e1 - gap / 2, slotTop - slot + gap / 2, slotTop - gap / 2)} fill={FILL.drawer} stroke={NAVY} strokeWidth={stroke} />
+                <line x1={X(r, mid - hw)} y1={Y(slotTop - 2.7)} x2={X(r, mid + hw)} y2={Y(slotTop - 2.7)} stroke={NAVY} strokeWidth={fs / 4.5} strokeLinecap="round" />
+              </g>,
+            );
+          }
+        }
+        out.push(
+          <text key={`l${c.code}`} x={X(r, (c.e0 + c.e1) / 2)} y={g === "bottom" ? Y(y0 + 1.4) : Y(y0 + H - 1.4) + fs * 0.4}
+            fontSize={Math.min(fs * 0.55, pitch / 4.5)} fill={MUTED} textAnchor="middle">
+            {c.code}
+          </text>,
+        );
+      });
+    }
+
+    // legs, or the skirting in front of them
+    if (g === "bottom" && y0 > 0) {
+      for (const sg of r.segments) {
+        if (sg.filler) continue;
+        if (inside) {
+          for (const p of sg.partitions) out.push(<rect key={`leg${p}`} {...box(r, p + t / 2 - 0.75, p + t / 2 + 0.75, 0, y0)} fill="#4a5361" />);
+        } else {
+          out.push(<rect key={`sk${sg.e0}`} {...box(r, sg.e0, sg.e1, 0, y0 - 0.15)} fill={FILL.skirting} stroke={INK} strokeWidth={fs / 16} />);
+        }
+      }
+    }
+
+    // spaces left for appliances
+    for (const o of r.openings) {
+      let ya = y0;
+      let yb = y0 + H;
+      if (g === "bottom") {
+        ya = 0;
+        yb = TALL.test(o.label) && !o.worktop ? Math.min(70, h.top > 0 ? h.topY0 - 0.5 : 70) : o.worktop ? y0 + H - 0.2 : y0 + H + dims.worktop;
+      }
+      const b = box(r, o.e0, o.e1, ya, yb);
+      const isWindow = g === "top" && /window/i.test(o.label);
+      const ty = b.y + Math.min(b.height / 2, fs * 2.2);
+      out.push(
+        <g key={`op${o.e0}`}>
+          <rect {...b} fill={isWindow ? "#e8f1f8" : FILL.opening} stroke={MUTED} strokeWidth={fs / 14} strokeDasharray={`${fs / 3} ${fs / 5}`} />
+          {isWindow && (
+            <>
+              <line x1={b.x + b.width / 2} y1={b.y} x2={b.x + b.width / 2} y2={b.y + b.height} stroke={LINE} strokeWidth={fs / 16} />
+              <line x1={b.x} y1={b.y + b.height / 2} x2={b.x + b.width} y2={b.y + b.height / 2} stroke={LINE} strokeWidth={fs / 16} />
+            </>
+          )}
+          <text x={b.x + b.width / 2} y={ty} fontSize={Math.min(fs * 0.66, b.width / 5)} fill={INK} textAnchor="middle" dominantBaseline="middle">
+            {o.label}
+          </text>
+          <text x={b.x + b.width / 2} y={ty + fs * 0.85} fontSize={Math.min(fs * 0.55, b.width / 6)} fill={MUTED} textAnchor="middle" dominantBaseline="middle">
+            {f1(o.e1 - o.e0)}in{o.worktop ? " · worktop over" : ""}
+          </text>
+        </g>,
+      );
+    }
+
+    // the worktop and tiles, piece by piece as they are cut
+    if (g === "bottom") {
+      const wTop = y0 + H + dims.worktop;
+      for (const p of pieces) {
+        if (p.span?.run !== r.index) continue;
+        if (p.part === "worktop" && dims.worktop > 0) {
+          out.push(<rect key={`wt${p.span.e0}`} {...box(r, p.span.e0, p.span.e1, y0 + H, y0 + H + Math.max(dims.worktop, 0.6))} fill={FILL.worktop} stroke={INK} strokeWidth={fs / 14} />);
+        } else if (p.part === "tile") {
+          out.push(
+            <rect key={`t${p.span.e0}-${p.span.y0}`} {...box(r, p.span.e0, p.span.e1, wTop + (p.span.y0 ?? 0), wTop + (p.span.y1 ?? 0))}
+              fill={FILL.tile} stroke={LINE} strokeWidth={fs / 18} />,
+          );
+        }
+      }
+    }
+
+    // the run across each corner, seen end on, in front of what is behind it
+    const corners: [number, number, 0 | 1][] = [];
+    if (r.ends[0] !== "free") corners.push([0, r.ends[0] === "short" ? r.zone[0] : Math.min(D, r.length), 0]);
+    if (r.ends[1] !== "free") corners.push([r.ends[1] === "short" ? r.zone[1] : Math.max(0, r.length - D), r.length, 1]);
+    for (const [a, b, side] of corners) {
+      // with the doors off, the blind corner is shown open
+      if (inside && r.ends[side] === "through") continue;
+      const other = returnOf(r, side);
+      const bx = box(r, a, b, g === "bottom" ? 0 : y0, y0 + H);
+      const cx = bx.x + bx.width / 2;
+      const cy = bx.y + bx.height / 2;
+      out.push(
+        <g key={`ret${side}`}>
+          <rect {...bx} fill={FILL.return} stroke={INK} strokeWidth={stroke} />
+          {g === "bottom" && dims.worktop > 0 && (
+            <rect {...box(r, a, b, y0 + H, y0 + H + Math.max(dims.worktop, 0.6))} fill={FILL.worktop} stroke={INK} strokeWidth={fs / 14} />
+          )}
+          <text x={cx} y={cy} fontSize={Math.min(fs * 0.6, bx.width / 2.2)} fill={MUTED} textAnchor="middle" dominantBaseline="middle"
+            transform={`rotate(-90 ${cx} ${cy})`}>
+            {other ? `${g === "bottom" ? "B" : "T"}${other.letter} end panel` : "corner"}
+          </text>
+        </g>,
+      );
+    }
+    return out;
+  };
+
+  // heights up the right-hand side
+  const heights: [number, number, string][] = [];
+  if (bottom) {
+    if (h.leg) heights.push([0, h.leg, `legs ${f1(h.leg)}`]);
+    heights.push([h.leg, h.leg + h.bottom, `cabinet ${f1(h.bottom)}`]);
+    if (h.worktop) heights.push([h.leg + h.bottom, h.leg + h.bottom + h.worktop, ""]);
+  }
+  if (top) {
+    if (bottom) heights.push([h.leg + h.bottom + h.worktop, h.topY0, `tiles ${f1(h.gap)}`]);
+    else heights.push([0, h.topY0, `to underside ${f1(h.topY0)}`]);
+    heights.push([h.topY0, h.topY0 + h.top, `cabinet ${f1(h.top)}`]);
+  }
+  const lower = bottom ?? top!;
+  const chain = chainPoints(lower).map((e) => X(lower, e));
+  const upper = top && bottom ? chainPoints(top).map((e) => X(top, e)) : [];
+
+  return (
+    <svg viewBox={`${-padL} ${-padT} ${W + padL + padR} ${HT + padT + padB}`} xmlns="http://www.w3.org/2000/svg" role="img"
+      aria-label={`${WALL_TITLE[wallId]} ${view}`} style={{ width: "100%", height: "auto", background: "#fff" }} fontFamily="Poppins, Arial, sans-serif">
+      <defs>
+        <pattern id={`b${uid}`} width={fs * 0.9} height={fs * 0.9} patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
+          <rect width={fs * 0.9} height={fs * 0.9} fill={FILL.blind} />
+          <line x1="0" y1="0" x2="0" y2={fs * 0.9} stroke="#d9b75d" strokeWidth={fs / 12} />
+        </pattern>
+      </defs>
+      {bottom && drawRun(bottom)}
+      {top && drawRun(top)}
+      <line x1={-padL * 0.6} y1={Y(0)} x2={W + fs} y2={Y(0)} stroke={INK} strokeWidth={fs / 6} />
+
+      {chain.slice(1).map((x, i) => (
+        <Dim key={i} a={[chain[i], HT + fs * 1.4]} b={[x, HT + fs * 1.4]} fs={fs} text={f1(x - chain[i])} />
+      ))}
+      <Dim a={[0, HT + fs * 3.6]} b={[W, HT + fs * 3.6]} fs={fs} text={`${WALL_TITLE[wallId]} · ${f1(W)}in (${ftIn(W)})`} />
+      {upper.slice(1).map((x, i) => (
+        <Dim key={`t${i}`} a={[upper[i], -fs * 1.4]} b={[x, -fs * 1.4]} fs={fs} side={-1} text={f1(x - upper[i])} />
+      ))}
+      {heights.map(([a, b, text], i) => (
+        <Dim key={`h${i}`} a={[W + fs * 1.6, Y(a)]} b={[W + fs * 1.6, Y(b)]} fs={fs} text={text} />
+      ))}
+      {h.worktop > 0 && bottom && (
+        <text x={W + fs * 2.4} y={Y(h.leg + h.bottom + h.worktop / 2)} fontSize={fs * 0.5} fill={MUTED} dominantBaseline="middle">
+          worktop {mm(h.worktop)}mm
+        </text>
+      )}
+      <text x={0} y={HT + fs * 5.6} fontSize={fs * 0.58} fill={MUTED}>
+        {inside
+          ? "Doors and skirting off: one partition between neighbours, shelves, drawer boxes and legs"
+          : `Facing the wall · ${runs.map((r) => `${r.group === "bottom" ? "B" : "T"}${r.letter}`).join(" and ")} · the dashed V points to the hinges`}
+      </text>
+    </svg>
+  );
+}
+
+/* ─────────────── cutting layout: one sheet ─────────────── */
 
 function CutSheet({ layout, index }: { layout: BoardLayout; index: number }) {
   const sheet = layout.sheets[index];
   const W = layout.sheet_w;
   const H = layout.sheet_h;
-  const pad = W * 0.06;
-  const fs = W / 60;
+  const pad = W * 0.04;
+  const fs = Math.max(W, H * 2) / 62;
   return (
-    <svg viewBox={`${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}`} xmlns="http://www.w3.org/2000/svg" role="img"
-      aria-label={`${layout.name} sheet ${index + 1}`} style={{ width: "100%", height: "auto", background: "#fff" }}>
+    <svg viewBox={`${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2 + fs * 1.4}`} xmlns="http://www.w3.org/2000/svg" role="img"
+      aria-label={`${layout.name} sheet ${index + 1}`} style={{ width: "100%", height: "auto", background: "#fff" }} fontFamily="Poppins, Arial, sans-serif">
       <rect x={0} y={0} width={W} height={H} fill="#f4efe6" stroke={INK} strokeWidth={fs / 6} />
       {sheet.placed.map((p, i) => {
-        const small = Math.min(p.w, p.h) < fs * 3.2;
+        const turn = p.h > p.w * 1.4;
+        const long = turn ? p.h : p.w;
+        const short = turn ? p.w : p.h;
+        const size = Math.min(fs, (long / Math.max(p.label.length, 6)) * 1.6, short / 2.4);
+        const cx = p.x + p.w / 2;
+        const cy = p.y + p.h / 2;
+        const two = short > size * 2.6;
         return (
           <g key={i}>
-            <rect x={p.x} y={p.y} width={p.w} height={p.h} fill="#fff" stroke={NAVY} strokeWidth={fs / 8} />
-            <text x={p.x + p.w / 2} y={p.y + p.h / 2 - (small ? 0 : fs * 0.6)} fontSize={small ? fs * 0.7 : fs}
-              fill={INK} textAnchor="middle" dominantBaseline="middle"
-              transform={p.h > p.w * 1.6 ? `rotate(-90 ${p.x + p.w / 2} ${p.y + p.h / 2})` : undefined}>
-              {small ? `${f1(p.w)}×${f1(p.h)}` : p.label}
-            </text>
-            {!small && (
-              <text x={p.x + p.w / 2} y={p.y + p.h / 2 + fs * 0.7} fontSize={fs * 0.85} fill={MUTED}
-                textAnchor="middle" dominantBaseline="middle"
-                transform={p.h > p.w * 1.6 ? `rotate(-90 ${p.x + p.w / 2} ${p.y + p.h / 2})` : undefined}>
-                {f1(p.w)} × {f1(p.h)}in{p.rotated ? " ↻" : ""}
+            <rect x={p.x} y={p.y} width={p.w} height={p.h} fill="#fff" stroke={NAVY} strokeWidth={fs / 9} />
+            <g transform={turn ? `rotate(-90 ${cx} ${cy})` : undefined}>
+              <text x={cx} y={two ? cy - size * 0.55 : cy} fontSize={size} fill={INK} textAnchor="middle" dominantBaseline="middle">
+                {two ? p.label : `${p.label} · ${f1(p.w)}×${f1(p.h)}`}
               </text>
-            )}
+              {two && (
+                <text x={cx} y={cy + size * 0.75} fontSize={size * 0.85} fill={MUTED} textAnchor="middle" dominantBaseline="middle">
+                  {f1(p.w)} × {f1(p.h)}in{p.rotated ? " ↻" : ""}
+                </text>
+              )}
+            </g>
           </g>
         );
       })}
-      <text x={0} y={H + fs * 1.8} fontSize={fs} fill={MUTED}>
-        {f1(W)} × {f1(H)}in sheet · {sheet.placed.length} pieces · {Math.round(sheet.used * 100)}% used
+      <text x={0} y={H + fs * 1.6} fontSize={fs * 0.9} fill={MUTED}>
+        {f1(W)} × {f1(H)}in sheet · {sheet.placed.length} pieces · {Math.round(sheet.used * 100)}% used · ↻ turned to fit
       </text>
     </svg>
   );
+}
+
+/* ─────────────── the cut list ─────────────── */
+
+function CutListTable({ rows, file }: { rows: CutRow[]; file: string }) {
+  function csv() {
+    const head = ["Material", "Cabinets", "Part", "Width (in)", "Height (in)", "Width (mm)", "Height (mm)", "Qty", "Where"];
+    const lines = rows.map((r) => [
+      r.material,
+      r.group === "bottom" ? "Bottom" : "Top",
+      r.part,
+      r.w.toFixed(2),
+      r.h.toFixed(2),
+      String(mm(r.w)),
+      String(mm(r.h)),
+      String(r.qty),
+      r.codes.join(" "),
+    ]);
+    const text = [head, ...lines].map((l) => l.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+    a.download = `${file}-cut-list.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  const materials = [...new Set(rows.map((r) => r.material))];
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-[var(--muted)]">
+          {rows.reduce((s, r) => s + r.qty, 0)} pieces. The codes say where each one goes: B or T for bottom or top, the wall letter, the cabinet
+          number, and P for a partition.
+        </p>
+        <button type="button" onClick={csv} className="shrink-0 text-xs font-medium text-[var(--brand)] hover:underline">Download CSV</button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-xs">
+          <thead>
+            <tr className="text-left text-[var(--muted)]">
+              <th className="py-1.5 pr-3 font-medium">Part</th>
+              <th className="py-1.5 pr-3 text-right font-medium">Size (in)</th>
+              <th className="py-1.5 pr-3 text-right font-medium">Size (mm)</th>
+              <th className="py-1.5 pr-3 text-right font-medium">Qty</th>
+              <th className="py-1.5 font-medium">Where</th>
+            </tr>
+          </thead>
+          {materials.map((m) => (
+            <tbody key={m}>
+              <tr>
+                <td colSpan={5} className="pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--text)]">{m}</td>
+              </tr>
+              {rows.filter((r) => r.material === m).map((r, i) => (
+                <tr key={i} className="[&>td]:border-t [&>td]:border-[var(--border)]">
+                  <td className="py-1.5 pr-3">{r.group === "bottom" ? "Bottom" : "Top"} · {r.part}</td>
+                  <td className="whitespace-nowrap py-1.5 pr-3 text-right">{f1(r.w)} × {f1(r.h)}</td>
+                  <td className="whitespace-nowrap py-1.5 pr-3 text-right text-[var(--muted)]">{mm(r.w)} × {mm(r.h)}</td>
+                  <td className="py-1.5 pr-3 text-right font-medium">{r.qty}</td>
+                  <td className="py-1.5 text-[var(--muted)]">{r.codes.join(", ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          ))}
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function notesPage(result: EstimateResult) {
+  const items = [...result.warnings.map((w) => `<li><b>${esc(w)}</b></li>`), ...result.notes.map((n) => `<li>${esc(n)}</li>`)].join("");
+  return items ? `<section class="page"><h2>How it is built</h2><ul>${items}</ul></section>` : "";
+}
+
+function cutListPage(rows: CutRow[]) {
+  if (!rows.length) return "";
+  const body = rows
+    .map(
+      (r) =>
+        `<tr><td>${esc(r.material)}</td><td>${r.group === "bottom" ? "Bottom" : "Top"} · ${esc(r.part)}</td>` +
+        `<td class="n">${f1(r.w)} × ${f1(r.h)}</td><td class="n">${mm(r.w)} × ${mm(r.h)}</td><td class="n">${r.qty}</td><td>${esc(r.codes.join(", "))}</td></tr>`,
+    )
+    .join("");
+  return `<section class="page"><h2>Cut list</h2><table><thead><tr><th>Material</th><th>Part</th><th>Size (in)</th><th>Size (mm)</th><th>Qty</th><th>Where</th></tr></thead><tbody>${body}</tbody></table></section>`;
 }
 
 function slug(s: string) {

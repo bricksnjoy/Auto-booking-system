@@ -9,8 +9,7 @@ import {
   saveSettings,
   type EstimatorResult,
 } from "@/app/actions/estimator";
-import { sheetSize, type Material, type Part, type Settings } from "@/lib/estimator";
-import { money } from "@/lib/format";
+import { ROLES, sheetSize, type Material, type Part, type Role, type Settings } from "@/lib/estimator";
 
 const input =
   "w-full rounded-md border border-[var(--border)] bg-[var(--field)] px-2 py-1.5 text-sm outline-none focus:border-[var(--brand)]";
@@ -138,6 +137,9 @@ function SaveBtnFor({ form, ...rest }: { form: string; pending: boolean; ok: boo
 
 /* ─────────────── recipes ─────────────── */
 
+const SHEET_ROLES: Role[] = ["base", "top_board", "side", "rail", "shelf", "back", "worktop", "backsplash", "pelmet",
+  "door", "drawer_front", "drawer_side", "drawer_back", "drawer_bottom", "piece"];
+
 export function RecipeCard({
   cabinet,
   title,
@@ -151,28 +153,13 @@ export function RecipeCard({
   parts: Part[];
   materials: Material[];
 }) {
-  const isFront = cabinet === "door" || cabinet === "drawer";
-  // rough cost of one module or front, so a change in the recipe shows in money
-  const byId = new Map(materials.map((m) => [m.id, m]));
-  const roughCost = parts.reduce((s, p) => {
-    const m = byId.get(p.material_id);
-    if (!m) return s;
-    if (m.kind === "accessory") return s + m.price * p.qty;
-    if (p.front_panel) return s;
-    const sheet = (m.length_ft ?? 0) * 12 * (m.width_ft ?? 0) * 12;
-    return sheet ? s + (m.price * (p.width_in ?? 0) * (p.height_in ?? 0) * p.qty) / sheet : s;
-  }, 0);
-
   return (
     <Card title={title} subtitle={subtitle}>
-      <table className="w-full min-w-[640px]">
+      <table className="w-full min-w-[760px]">
         <thead>
           <tr>
-            <th className={th}>Part</th><th className={th}>Made of</th>
-            <th className={th}>Width (in)</th><th className={th}>Height (in)</th><th className={th}>Qty</th>
-            <th className={th}>{isFront ? "Front size" : "Per shelf"}</th>
-            {!isFront && <th className={th}>Along wall</th>}
-            {!isFront && <th className={th}>Shared side</th>}<th />
+            <th className={th}>Part</th><th className={th}>What it is</th><th className={th}>Made of</th>
+            <th className={th}>Setting</th><th className={th}>Qty</th><th />
           </tr>
         </thead>
         <tbody>
@@ -180,24 +167,22 @@ export function RecipeCard({
           <PartRow key={`new-${parts.length}`} cabinet={cabinet} materials={materials} />
         </tbody>
       </table>
-      <p className="px-2 pt-2 text-xs text-[var(--muted)]">
-        About {money(roughCost)} of material {isFront ? `per ${cabinet}, plus its front panel` : "per module"}, before waste
-        {cabinet === "bottom" || cabinet === "top" ? " (shelves counted once)" : ""}.
-      </p>
     </Card>
   );
 }
 
 function PartRow({ p, cabinet, materials }: { p?: Part; cabinet: Part["cabinet"]; materials: Material[] }) {
   const [state, action, pending] = useActionState(savePart, null as EstimatorResult | null);
+  const roles = (Object.keys(ROLES) as Role[]).filter((r) => ROLES[r].on.includes(cabinet));
+  const [role, setRole] = useState<Role>(p?.role ?? (roles.includes("piece") ? "piece" : roles[0]));
+  const needsSheet = SHEET_ROLES.includes(role);
+  const choices = materials.filter((m) => (m.kind === "board") === needsSheet);
+  const [materialId, setMaterialId] = useState(p?.material_id ?? choices[0]?.id ?? "");
   const [dirty, setDirty] = useState(!p);
-  const [materialId, setMaterialId] = useState(p?.material_id ?? materials[0]?.id ?? "");
-  const [front, setFront] = useState(p?.front_panel ?? false);
-  const [along, setAlong] = useState(p?.along_wall ?? false);
-  const isFront = cabinet === "door" || cabinet === "drawer";
-  const isBoard = materials.find((m) => m.id === materialId)?.kind === "board";
+  const info = ROLES[role];
   const formId = `part-${p?.id ?? `new-${cabinet}`}`;
   const touch = () => setDirty(true);
+  const validMaterial = choices.some((m) => m.id === materialId);
 
   return (
     <tr className="border-t border-[var(--border)] align-top">
@@ -210,50 +195,58 @@ function PartRow({ p, cabinet, materials }: { p?: Part; cabinet: Part["cabinet"]
           className={input} onChange={touch} aria-label="Part" />
       </td>
       <td className="px-2 py-1.5">
-        <select form={formId} name="material_id" value={materialId} className={input} aria-label="Made of"
+        <select form={formId} name="role" value={role} className={input} aria-label="What it is"
+          onChange={(e) => {
+            const r = e.target.value as Role;
+            setRole(r);
+            const sheet = SHEET_ROLES.includes(r);
+            if (!materials.some((m) => m.id === materialId && (m.kind === "board") === sheet)) {
+              setMaterialId(materials.find((m) => (m.kind === "board") === sheet)?.id ?? "");
+            }
+            touch();
+          }}>
+          {roles.map((r) => <option key={r} value={r}>{ROLES[r].label}</option>)}
+        </select>
+        <span className="mt-1 block max-w-[240px] text-[10px] leading-snug text-[var(--muted)]">{info.how}</span>
+      </td>
+      <td className="min-w-[150px] px-2 py-1.5">
+        <select form={formId} name="material_id" value={validMaterial ? materialId : ""} className={input} aria-label="Made of"
           onChange={(e) => { setMaterialId(e.target.value); touch(); }}>
-          {materials.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          {!validMaterial && <option value="">Choose…</option>}
+          {choices.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
       </td>
-      {isBoard && along ? (
-        <>
-          <td className="px-2 py-2 text-xs text-[var(--muted)]">length of the wall</td>
-          <td className="px-2 py-1.5"><input form={formId} name="height_in" type="number" step="0.01" defaultValue={p?.height_in ?? 24} className={input} onChange={touch} aria-label="Depth in inches" /></td>
-        </>
-      ) : isBoard && !front ? (
-        <>
-          <td className="px-2 py-1.5"><input form={formId} name="width_in" type="number" step="0.01" defaultValue={p?.width_in ?? ""} className={input} onChange={touch} aria-label="Width in inches" /></td>
-          <td className="px-2 py-1.5"><input form={formId} name="height_in" type="number" step="0.01" defaultValue={p?.height_in ?? ""} className={input} onChange={touch} aria-label="Height in inches" /></td>
-        </>
-      ) : (
-        <td colSpan={2} className="px-2 py-2 text-xs text-[var(--muted)]">
-          {front ? "size of the door or drawer" : "bought by the piece"}
-        </td>
-      )}
-      <td className="px-2 py-1.5"><input form={formId} name="qty" type="number" step="0.01" min="0" defaultValue={p?.qty ?? 1} className={input} onChange={touch} aria-label="Quantity" /></td>
-      <td className="px-2 py-2">
-        {isFront ? (
-          <input form={formId} type="checkbox" name="front_panel" checked={front} aria-label="Takes the front size"
-            onChange={(e) => { setFront(e.target.checked); touch(); }} className="h-4 w-4 accent-[var(--brand)]" />
+      <td className="w-48 px-2 py-1.5">
+        {info.param === "Size (in)" ? (
+          <span className="flex items-center gap-1">
+            <input form={formId} name="width_in" type="number" step="0.01" defaultValue={p?.width_in ?? ""} className={input} onChange={touch} aria-label="Width in inches" placeholder="W" />
+            ×
+            <input form={formId} name="height_in" type="number" step="0.01" defaultValue={p?.height_in ?? ""} className={input} onChange={touch} aria-label="Height in inches" placeholder="H" />
+          </span>
+        ) : info.param === "Depth (in)" ? (
+          <label className="block">
+            <input form={formId} name="height_in" type="number" step="0.01" defaultValue={p?.height_in ?? 24} className={input} onChange={touch} aria-label={info.param} />
+            <span className="text-[10px] text-[var(--muted)]">{info.param}</span>
+          </label>
+        ) : info.param ? (
+          <label className="block">
+            <input form={formId} name="width_in" type="number" step="0.01" defaultValue={p?.width_in ?? 3} className={input} onChange={touch} aria-label={info.param} />
+            <span className="text-[10px] text-[var(--muted)]">{info.param}</span>
+          </label>
         ) : (
-          <input form={formId} type="checkbox" name="per_shelf" defaultChecked={p?.per_shelf ?? false} aria-label="One per shelf"
-            onChange={touch} className="h-4 w-4 accent-[var(--brand)]" />
+          <span className="text-xs text-[var(--muted)]">from the walls</span>
         )}
       </td>
-      {!isFront && (
-        <td className="px-2 py-2">
-          <input form={formId} type="checkbox" name="along_wall" checked={along} aria-label="Cut to the length of the wall"
-            title="Cut to the length of each wall, in as few pieces as the sheet allows — like a worktop"
-            onChange={(e) => { setAlong(e.target.checked); touch(); }} className="h-4 w-4 accent-[var(--brand)]" />
-        </td>
-      )}
-      {!isFront && (
-        <td className="px-2 py-2">
-          <input form={formId} type="checkbox" name="shared_side" defaultChecked={p?.shared_side ?? false} aria-label="Shared by neighbouring cabinets"
-            title="One panel between neighbouring cabinets, plus one at each end of a run — not two per cabinet"
-            onChange={touch} className="h-4 w-4 accent-[var(--brand)]" />
-        </td>
-      )}
+      <td className="px-2 py-1.5">
+        {info.qty ? (
+          <label className="block w-20">
+            <input form={formId} name="qty" type="number" step="1" min="1" defaultValue={p?.qty ?? 1} className={input} onChange={touch} aria-label="Quantity" />
+            <span className="text-[10px] text-[var(--muted)]">{info.qty}</span>
+          </label>
+        ) : (
+          <input form={formId} name="qty" type="hidden" value={p?.qty ?? 1} />
+        )}
+      </td>
       <td className="whitespace-nowrap px-2 py-1.5 text-right">
         <span className="inline-flex items-center gap-2">
           <SaveBtnFor form={formId} pending={pending} ok={Boolean(state?.ok)} dirty={dirty} />
@@ -277,26 +270,45 @@ export function SettingsCard({ settings }: { settings: Settings }) {
   const field = (name: keyof Settings, label: string, note?: string) => (
     <div>
       <label htmlFor={`s-${name}`} className="mb-1 block text-sm font-medium">{label}</label>
-      <input id={`s-${name}`} name={name} type="number" step="0.01" min="0" defaultValue={settings[name]} className={input} />
+      <input id={`s-${name}`} name={name} type="number" step="any" min="0" defaultValue={settings[name]} className={input} />
       {note && <p className="mt-1 text-xs text-[var(--muted)]">{note}</p>}
     </div>
   );
+  const group = (title: string, children: React.ReactNode) => (
+    <fieldset className="rounded-lg border border-[var(--border)] p-4">
+      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{title}</legend>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
+    </fieldset>
+  );
   return (
-    <Card title="Defaults" subtitle="Module sizes, and what every new estimate starts with">
-      <form action={async (fd) => { await action(fd); setDirty(false); }} onChange={() => setDirty(true)}
-        className="grid gap-4 px-2 py-2 sm:grid-cols-2 xl:grid-cols-4">
-        {field("bottom_module_in", "Bottom module length (in)", "24in = 2ft")}
-        {field("top_module_in", "Top module length (in)")}
-        {field("bottom_depth_in", "Bottom cabinet depth (in)", "Taken off at each corner")}
-        {field("top_depth_in", "Top cabinet depth (in)")}
-        {field("waste_pct", "Waste allowance %", "Offcuts when cutting boards")}
-        {field("labour_per_ft", "Labour per ft (Rf)")}
-        {field("margin_pct", "Margin %", "Added on top of cost")}
-        {field("bottom_height_in", "Bottom cabinet height (in)", "For the drawings")}
-        {field("top_height_in", "Top cabinet height (in)")}
-        {field("top_gap_in", "Gap above worktop (in)", "Worktop to underside of top cabinets")}
-        {field("kerf_in", "Saw blade width (in)", "Left between pieces on the cutting layout")}
-        <div className="flex items-end gap-3">
+    <Card title="How cabinets are laid out" subtitle="Every wall is divided into real cabinets using these — then everything is cut to fit">
+      <form action={async (fd) => { await action(fd); setDirty(false); }} onChange={() => setDirty(true)} className="space-y-4 px-2 py-2">
+        {group("Cabinets", <>
+          {field("bottom_module_in", "Bottom cabinet width to aim for (in)", "Walls are split into equal cabinets as close to this as fits")}
+          {field("top_module_in", "Top cabinet width to aim for (in)")}
+          {field("cabinet_min_in", "Narrowest cabinet (in)", "Anything less becomes a fixed panel")}
+          {field("cabinet_max_in", "Widest cabinet (in)")}
+          {field("bottom_depth_in", "Bottom depth (in)", "Also the blind corner's width")}
+          {field("top_depth_in", "Top depth (in)")}
+          {field("bottom_height_in", "Bottom carcass height (in)", "90cm = 35.43in")}
+          {field("top_height_in", "Top carcass height (in)")}
+          {field("leg_height_in", "Legs / skirting height (in)")}
+          {field("top_gap_in", "Worktop to top cabinets (in)", "The tiled backsplash")}
+        </>)}
+        {group("Fronts & fittings", <>
+          {field("single_door_max_in", "One door up to (in)", "Wider cabinets get two doors")}
+          {field("door_gap_in", "Gap around doors (in)", "0.08in ≈ 2mm")}
+          {field("runner_clearance_in", "Runner clearance, each side (in)", "Drawer box = clear width − 2 × this")}
+          {field("shelf_setback_in", "Shelf set back from front (in)")}
+          {field("tile_trim_in", "Leave untiled up to (in)", "A strip thinner than this above the tiles is grouted, not tiled")}
+          {field("kerf_in", "Saw blade width (in)", "Left between pieces on the cutting layout")}
+        </>)}
+        {group("Pricing", <>
+          {field("waste_pct", "Spare sheets %", "On top of what the cutting layout needs — 0 buys exactly the layout")}
+          {field("labour_per_ft", "Labour per ft (Rf)")}
+          {field("margin_pct", "Margin %", "Added on top of cost")}
+        </>)}
+        <div className="flex items-center gap-3">
           <SaveBtn pending={pending} ok={Boolean(state?.ok)} dirty={dirty} />
           {state?.error && <span className="text-xs text-red-700">{state.error}</span>}
         </div>

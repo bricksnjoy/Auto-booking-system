@@ -1,22 +1,43 @@
 /**
- * Lays the cut pieces out on whole boards, the way a carpenter would mark
- * them up: biggest pieces first, each placed in the free space it fills most
- * snugly, turned if that fits better, with a blade's width left between cuts.
- * Every placement splits the space left over into two rectangles, so each
- * layout can be cut with straight, edge-to-edge (guillotine) cuts.
+ * Lays the cut pieces out on whole sheets the way a carpenter would mark them
+ * up. Every placement splits the space left over into two rectangles, so each
+ * layout can be cut with straight, edge-to-edge (guillotine) cuts. Several
+ * orders and rules are tried and the layout needing the fewest sheets wins.
  */
 
-import type { CutLine, Material } from "@/lib/estimator";
+import type { Group, Material } from "@/lib/estimator";
 
-export interface Piece {
-  label: string;
-  w: number;
-  h: number;
+/** Where a piece that runs along a wall sits on it, so drawings show its joints. */
+export interface Span {
+  run: number;
+  e0: number;
+  e1: number;
+  /** tiles: the row's bottom and top, above the worktop */
+  y0?: number;
+  y1?: number;
 }
 
-export interface Placed extends Piece {
+export interface Piece {
+  /** which cabinet or run it belongs to — BA3, TB */
+  code: string;
+  part: string;
+  label: string;
+  material_id: string;
+  group: Group;
+  w: number;
+  h: number;
+  /** may be turned 90° — not marble or tiles, whose pattern runs along the wall */
+  rotate: boolean;
+  span?: Span;
+}
+
+export interface Placed {
+  label: string;
+  code: string;
   x: number;
   y: number;
+  w: number;
+  h: number;
   /** turned 90° to fit */
   rotated: boolean;
 }
@@ -33,7 +54,7 @@ export interface BoardLayout {
   sheet_w: number;
   sheet_h: number;
   sheets: Sheet[];
-  /** pieces bigger than the board either way round */
+  /** pieces bigger than the sheet either way round */
   oversize: Piece[];
 }
 
@@ -44,90 +65,123 @@ interface Free {
   h: number;
 }
 
-/** Pack one board's pieces onto as few sheets as it can. */
-export function packPieces(pieces: Piece[], sheetW: number, sheetH: number, kerf: number) {
-  const order = [...pieces].sort((a, b) => b.w * b.h - a.w * a.h || Math.max(b.w, b.h) - Math.max(a.w, a.h));
+type Fit = "short" | "long" | "area";
+type Split = "shorter-axis" | "longer-axis" | "shorter-leftover" | "longer-leftover";
+
+const SORTS: ((a: Piece, b: Piece) => number)[] = [
+  (a, b) => b.w * b.h - a.w * a.h,
+  (a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h) || b.w * b.h - a.w * a.h,
+  (a, b) => b.h - a.h || b.w - a.w,
+  (a, b) => b.w - a.w || b.h - a.h,
+  (a, b) => b.w + b.h - (a.w + a.h),
+];
+const FITS: Fit[] = ["short", "long", "area"];
+/** a piece this much over the sheet still comes out of it (see SHEET_TOLERANCE_IN) */
+const TOL = 0.1;
+const SPLITS: Split[] = ["shorter-axis", "longer-axis", "shorter-leftover", "longer-leftover"];
+
+function packOnce(order: Piece[], W: number, H: number, kerf: number, fit: Fit, split: Split) {
   const sheets: { placed: Placed[]; free: Free[] }[] = [];
   const oversize: Piece[] = [];
 
-  const fits = (p: Piece) => (p.w <= sheetW && p.h <= sheetH) || (p.h <= sheetW && p.w <= sheetH);
-
   for (const p of order) {
-    if (!fits(p)) {
+    const straight = p.w <= W + TOL && p.h <= H + TOL;
+    const turned = p.rotate && p.h <= W + TOL && p.w <= H + TOL;
+    if (!straight && !turned) {
       oversize.push(p);
       continue;
     }
-    let best: { s: number; f: number; w: number; h: number; rotated: boolean; score: number } | null = null;
+    let best: { s: number; f: number; w: number; h: number; rotated: boolean; score: number; tie: number } | null = null;
     for (let s = 0; s < sheets.length; s++) {
       sheets[s].free.forEach((fr, f) => {
-        for (const rotated of [false, true]) {
+        for (const rotated of p.rotate ? [false, true] : [false]) {
           const w = rotated ? p.h : p.w;
           const h = rotated ? p.w : p.h;
-          if (w <= fr.w + 1e-6 && h <= fr.h + 1e-6) {
-            // best short side fit: the leftover strip is as thin as it can be
-            const score = Math.min(fr.w - w, fr.h - h);
-            if (!best || score < best.score) best = { s, f, w, h, rotated, score };
+          if (w > fr.w + TOL || h > fr.h + TOL) continue;
+          const dw = fr.w - w;
+          const dh = fr.h - h;
+          const score = fit === "short" ? Math.min(dw, dh) : fit === "long" ? Math.max(dw, dh) : fr.w * fr.h - w * h;
+          const tie = fit === "area" ? Math.min(dw, dh) : fr.w * fr.h;
+          if (!best || score < best.score - 1e-9 || (Math.abs(score - best.score) <= 1e-9 && tie < best.tie)) {
+            best = { s, f, w, h, rotated, score, tie };
           }
         }
       });
     }
     if (!best) {
-      sheets.push({ placed: [], free: [{ x: 0, y: 0, w: sheetW, h: sheetH }] });
-      const fr = { x: 0, y: 0, w: sheetW, h: sheetH };
-      const rotated = !(p.w <= fr.w && p.h <= fr.h);
-      best = { s: sheets.length - 1, f: 0, w: rotated ? p.h : p.w, h: rotated ? p.w : p.h, rotated, score: 0 };
+      sheets.push({ placed: [], free: [{ x: 0, y: 0, w: W, h: H }] });
+      const rotated = !straight;
+      best = { s: sheets.length - 1, f: 0, w: rotated ? p.h : p.w, h: rotated ? p.w : p.h, rotated, score: 0, tie: 0 };
     }
     const b = best as { s: number; f: number; w: number; h: number; rotated: boolean };
     const sheet = sheets[b.s];
     const fr = sheet.free[b.f];
-    sheet.placed.push({ ...p, x: fr.x, y: fr.y, w: b.w, h: b.h, rotated: b.rotated });
+    sheet.placed.push({ label: p.label, code: p.code, x: fr.x, y: fr.y, w: b.w, h: b.h, rotated: b.rotated });
 
-    // cut along the shorter leftover, keeping the larger offcut in one piece
-    const rightW = fr.w - b.w - kerf;
-    const belowH = fr.h - b.h - kerf;
-    const splitAcross = fr.w - b.w < fr.h - b.h;
-    const right: Free = { x: fr.x + b.w + kerf, y: fr.y, w: rightW, h: splitAcross ? b.h : fr.h };
-    const below: Free = { x: fr.x, y: fr.y + b.h + kerf, w: splitAcross ? fr.w : b.w, h: belowH };
+    // one straight cut right across the free space, then one along the piece
+    const dw = fr.w - b.w;
+    const dh = fr.h - b.h;
+    const across =
+      split === "shorter-axis" ? fr.w < fr.h :
+      split === "longer-axis" ? fr.w >= fr.h :
+      split === "shorter-leftover" ? dw < dh :
+      dw >= dh;
+    const right: Free = { x: fr.x + b.w + kerf, y: fr.y, w: dw - kerf, h: across ? b.h : fr.h };
+    const below: Free = { x: fr.x, y: fr.y + b.h + kerf, w: across ? fr.w : b.w, h: dh - kerf };
     sheet.free.splice(b.f, 1, ...[right, below].filter((r) => r.w > 0.5 && r.h > 0.5));
   }
 
   return {
     sheets: sheets.map((s) => ({
       placed: s.placed,
-      used: s.placed.reduce((a, p) => a + p.w * p.h, 0) / (sheetW * sheetH),
+      used: s.placed.reduce((a, p) => a + p.w * p.h, 0) / (W * H),
     })),
     oversize,
   };
 }
 
-/** Cutting layouts for every board in an estimate, pieces rounded up to whole ones. */
-export function cuttingLayouts(cuts: CutLine[], materials: Material[], kerf: number): BoardLayout[] {
-  const byMaterial = new Map<string, Piece[]>();
-  const nameToId = new Map(materials.filter((m) => m.kind === "board").map((m) => [m.name, m.id]));
-  for (const c of cuts) {
-    const id = nameToId.get(c.material);
-    if (!id) continue;
-    const count = Math.ceil(c.pieces - 1e-9);
-    const side = c.group === "bottom" ? "B" : "T";
-    const label = c.source.startsWith("Wall ")
-      ? `${side} · ${c.part} · ${c.source.toLowerCase()}`
-      : `${side}${c.source === "Carcass" ? "" : ` ${c.source.toLowerCase()}`} · ${c.part}`;
-    const list = byMaterial.get(id) ?? [];
-    for (let i = 0; i < count; i++) list.push({ label, w: c.width_in, h: c.height_in });
-    byMaterial.set(id, list);
+/** Pack one sheet type's pieces onto as few sheets as the rules allow. */
+export function packPieces(pieces: Piece[], W: number, H: number, kerf: number) {
+  let best: ReturnType<typeof packOnce> | null = null;
+  for (const sort of SORTS) {
+    const order = [...pieces].sort(sort);
+    for (const fit of FITS) {
+      for (const split of SPLITS) {
+        const r = packOnce(order, W, H, kerf, fit, split);
+        if (
+          !best ||
+          r.sheets.length < best.sheets.length ||
+          // same count: keep the one that leaves one big offcut on the last sheet
+          (r.sheets.length === best.sheets.length && (r.sheets.at(-1)?.used ?? 0) < (best.sheets.at(-1)?.used ?? 0))
+        ) {
+          best = r;
+        }
+      }
+    }
   }
+  return best ?? { sheets: [], oversize: [] };
+}
 
+/** A cutting layout for every sheet material the pieces are cut from. */
+export function cuttingLayouts(pieces: Piece[], materials: Material[], kerf: number): BoardLayout[] {
+  const byMaterial = new Map<string, Piece[]>();
+  for (const p of pieces) {
+    const list = byMaterial.get(p.material_id) ?? [];
+    list.push(p);
+    byMaterial.set(p.material_id, list);
+  }
   const layouts: BoardLayout[] = [];
-  for (const [id, pieces] of byMaterial) {
-    const m = materials.find((x) => x.id === id)!;
+  for (const [id, list] of byMaterial) {
+    const m = materials.find((x) => x.id === id);
+    if (!m || m.kind !== "board") continue;
     // lay the sheet long side across
     const a = (Number(m.length_ft) || 0) * 12;
     const b = (Number(m.width_ft) || 0) * 12;
-    const sheetW = Math.max(a, b);
-    const sheetH = Math.min(a, b);
-    if (!sheetW || !sheetH) continue;
-    const { sheets, oversize } = packPieces(pieces, sheetW, sheetH, kerf);
-    layouts.push({ material_id: id, name: m.name, sheet_w: sheetW, sheet_h: sheetH, sheets, oversize });
+    const W = Math.max(a, b);
+    const H = Math.min(a, b);
+    if (!W || !H) continue;
+    const { sheets, oversize } = packPieces(list, W, H, kerf);
+    layouts.push({ material_id: id, name: m.name, sheet_w: W, sheet_h: H, sheets, oversize });
   }
-  return layouts;
+  return layouts.sort((x, y) => x.name.localeCompare(y.name));
 }

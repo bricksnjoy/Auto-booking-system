@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { EstimateInput, EstimateResult } from "@/lib/estimator";
+import { ROLES, type EstimateInput, type EstimateResult, type FrontKind, type Group, type Role } from "@/lib/estimator";
 
 export type EstimatorResult = { error?: string; ok?: boolean };
 
@@ -66,33 +66,37 @@ export async function removeMaterial(id: string): Promise<EstimatorResult> {
   return { ok: true };
 }
 
-/** One part of a module recipe, or of a door or drawer. */
+/** One part of a recipe: what it is (its role), what it is cut from, and the role's parameters. */
 export async function savePart(_prev: unknown, fd: FormData): Promise<EstimatorResult> {
   const supabase = await createClient();
   if (!(await user(supabase))) return { error: "Not signed in." };
   const id = String(fd.get("id") ?? "");
   const cabinet = String(fd.get("cabinet") ?? "");
   const name = String(fd.get("name") ?? "").trim();
+  const role = String(fd.get("role") ?? "") as Role;
   const materialId = String(fd.get("material_id") ?? "");
   const qty = num(fd, "qty");
   if (!["bottom", "top", "door", "drawer"].includes(cabinet)) return { error: "Unknown recipe." };
+  if (!ROLES[role] || !ROLES[role].on.includes(cabinet as Group | FrontKind)) return { error: "Choose what the part is." };
   if (!name) return { error: "Name the part." };
   if (!materialId) return { error: "Choose what it is made of." };
   if (qty === null || qty <= 0) return { error: "Enter how many." };
 
-  const frontPanel = fd.get("front_panel") === "on";
-  const alongWall = fd.get("along_wall") === "on";
+  const { data: material } = await supabase.from("cabinet_materials").select("kind").eq("id", materialId).maybeSingle();
+  const sheetRoles: Role[] = ["base", "top_board", "side", "rail", "shelf", "back", "worktop", "backsplash", "pelmet",
+    "door", "drawer_front", "drawer_side", "drawer_back", "drawer_bottom", "piece"];
+  if (material && sheetRoles.includes(role) !== (material.kind === "board")) {
+    return { error: sheetRoles.includes(role) ? "This part is cut from a board, tile or slab." : "This part is bought by the piece or length — choose a fitting." };
+  }
+
   const row = {
     cabinet,
     name,
+    role,
     material_id: materialId,
     qty,
-    width_in: frontPanel || alongWall ? null : num(fd, "width_in"),
-    height_in: frontPanel ? null : num(fd, "height_in"),
-    along_wall: alongWall,
-    shared_side: fd.get("shared_side") === "on",
-    per_shelf: fd.get("per_shelf") === "on",
-    front_panel: frontPanel,
+    width_in: num(fd, "width_in"),
+    height_in: num(fd, "height_in"),
   };
   const { error } = id
     ? await supabase.from("cabinet_parts").update(row).eq("id", id)
@@ -115,7 +119,8 @@ export async function saveSettings(_prev: unknown, fd: FormData): Promise<Estima
   if (!(await user(supabase))) return { error: "Not signed in." };
   const keys = [
     "bottom_module_in", "top_module_in", "bottom_depth_in", "top_depth_in", "waste_pct", "labour_per_ft", "margin_pct",
-    "bottom_height_in", "top_height_in", "top_gap_in", "kerf_in",
+    "bottom_height_in", "top_height_in", "top_gap_in", "kerf_in", "cabinet_min_in", "cabinet_max_in",
+    "single_door_max_in", "leg_height_in", "door_gap_in", "runner_clearance_in", "shelf_setback_in", "tile_trim_in",
   ];
   const row: Record<string, number> = {};
   for (const k of keys) {
@@ -123,7 +128,8 @@ export async function saveSettings(_prev: unknown, fd: FormData): Promise<Estima
     if (v === null || v < 0) return { error: "Every setting needs a number of 0 or more." };
     row[k] = v;
   }
-  if (!row.bottom_module_in || !row.top_module_in) return { error: "A module must have a length." };
+  if (!row.bottom_module_in || !row.top_module_in) return { error: "Set the cabinet width to aim for." };
+  if (row.cabinet_min_in > row.cabinet_max_in) return { error: "The narrowest cabinet cannot be wider than the widest." };
   const { error } = await supabase.from("estimator_settings").update(row).eq("id", true);
   if (error) return { error: error.message };
   refresh();
@@ -143,6 +149,9 @@ export async function saveEstimate(_prev: unknown, fd: FormData): Promise<Estima
   }
   if (!body.name?.trim()) return { error: "Give the estimate a name — the client or the kitchen." };
   if (!body.result?.groups?.length) return { error: "Choose a shape and enter the wall lengths first." };
+  // keep what the quotation and list need; the drawings are rebuilt from the inputs
+  const { groups, boards, accessories, cutList, length_ft, materials_cost, accessories_cost, labour, cost, margin, price, notes, warnings } = body.result;
+  const result = { groups, boards, accessories, cutList, length_ft, materials_cost, accessories_cost, labour, cost, margin, price, notes, warnings };
 
   const projectId = body.project_id || null;
   let clientId: string | null = null;
@@ -158,7 +167,7 @@ export async function saveEstimate(_prev: unknown, fd: FormData): Promise<Estima
       project_id: projectId,
       client_id: clientId,
       inputs: body.inputs,
-      result: body.result,
+      result,
       total: body.result.price,
       created_by: u.id,
     })
