@@ -59,10 +59,17 @@ export async function createSalaryPlan(_prev: unknown, fd: FormData): Promise<Sa
   if (member.balance <= 0) {
     return { error: `${member.name} has nothing in the pool to draw a salary from.` };
   }
-  if (months && monthly * months > member.balance + 0.001) {
-    const most = monthsCovered(member.balance, monthly);
+  if (member.free <= 0) {
     return {
-      error: `${member.name} has ${fmt(member.balance)} in the pool — at ${fmt(monthly)} a month that covers ${most} month${most === 1 ? "" : "s"} at most.`,
+      error: `All of ${member.name}'s ${fmt(member.balance)} is invested in projects not yet paid for, so none of it can be taken as salary yet.`,
+    };
+  }
+  if (months && monthly * months > member.free + 0.001) {
+    const most = monthsCovered(member.free, monthly);
+    return {
+      error: `${member.name} has ${fmt(member.free)} free${
+        member.invested > 0 ? ` (${fmt(member.invested)} more is invested in projects)` : ""
+      } — at ${fmt(monthly)} a month that covers ${most} month${most === 1 ? "" : "s"} at most.`,
     };
   }
 
@@ -111,7 +118,7 @@ async function payOne(
 
   const pos = await poolPosition(supabase);
   const member = pos.members.find((m) => m.id === plan.paid_from_member_id);
-  const due = payableNow(monthly, member?.balance ?? 0, pos.available);
+  const due = payableNow(monthly, member?.free ?? 0, pos.available, member?.balance ?? 0);
   if (due.amount <= 0) return { error: `${person}: ${due.reason}.` };
 
   const { data: entry, error: eErr } = await supabase
@@ -142,7 +149,8 @@ async function payOne(
     return { error: pErr.message };
   }
 
-  // the plan ends when its term is served, or when the share it draws on is spent
+  // The plan ends when its term is served, or when the share is spent. Money
+  // merely invested does not end it — it resumes once those projects are paid.
   const lastOfTerm = plan.months && month >= addMonths(plan.start_month, plan.months - 1);
   const emptied = (member?.balance ?? 0) - due.amount <= 0.001;
   if (lastOfTerm || emptied) {

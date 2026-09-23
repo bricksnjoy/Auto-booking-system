@@ -51,8 +51,11 @@ export default async function SalariesPage({
     if (p.month === month) paidThisMonth.set(p.plan_id, { id: p.id, amount: num(p.amount) });
   }
 
-  // this month's run: who is covered, what can go out, and why not if nothing
+  // this month's run: who is covered, what can go out, and why not if nothing.
+  // Several plans can draw on one share, so each member's free amount is spent
+  // down as the list goes.
   let freeCash = pos.available;
+  const freeLeft = new Map(pos.members.map((mm) => [mm.id, mm.free]));
   const run = (plans ?? [])
     .filter((p) =>
       paidThisMonth.has(p.id) ||
@@ -64,8 +67,16 @@ export default async function SalariesPage({
       const paid = paidThisMonth.get(p.id);
       const due = paid
         ? null
-        : payableNow(num(p.monthly_amount), member?.balance ?? 0, freeCash);
-      if (due) freeCash -= due.amount;
+        : payableNow(
+            num(p.monthly_amount),
+            freeLeft.get(p.paid_from_member_id) ?? 0,
+            freeCash,
+            member?.balance ?? 0,
+          );
+      if (due) {
+        freeCash -= due.amount;
+        freeLeft.set(p.paid_from_member_id, (freeLeft.get(p.paid_from_member_id) ?? 0) - due.amount);
+      }
       return { plan: p, person, member, paid, due };
     });
 
@@ -81,7 +92,9 @@ export default async function SalariesPage({
         action={
           <NewPlanButton
             people={(people ?? []).map((p) => ({ ...p, role: p.role as string }))}
-            members={pos.members.map((mm) => ({ id: mm.id, name: mm.name, kind: mm.kind, balance: mm.balance }))}
+            members={pos.members.map((mm) => ({
+              id: mm.id, name: mm.name, kind: mm.kind, balance: mm.balance, free: mm.free, invested: mm.invested,
+            }))}
             month={month}
           />
         }
@@ -113,7 +126,7 @@ export default async function SalariesPage({
           <Table>
             <thead>
               <tr>
-                <Th>Person</Th><Th>Paid from</Th><Th right>Share left</Th>
+                <Th>Person</Th><Th>Paid from</Th><Th right>Free in share</Th>
                 <Th right>Monthly</Th><Th right>This month</Th>
               </tr>
             </thead>
@@ -122,7 +135,14 @@ export default async function SalariesPage({
                 <tr key={plan.id} className="hover:bg-[var(--hover)]">
                   <Td className="font-medium">{person?.name ?? "—"}</Td>
                   <Td className="text-xs text-[var(--muted)]">{member?.name ?? "—"}&apos;s share</Td>
-                  <Td right>{money(member?.balance ?? 0)}</Td>
+                  <Td right>
+                    {money(member?.free ?? 0)}
+                    {member && member.invested > 0 && (
+                      <span className="block text-[10px] text-[var(--muted)]">
+                        + {money(member.invested)} invested
+                      </span>
+                    )}
+                  </Td>
                   <Td right className="text-[var(--muted)]">{money(num(plan.monthly_amount))}</Td>
                   <Td right>
                     {paid ? (
@@ -170,9 +190,9 @@ export default async function SalariesPage({
                             (payments ?? []).filter((x) => x.plan_id === p.id).length,
                           0,
                         ),
-                        monthsCovered(member?.balance ?? 0, num(p.monthly_amount)),
+                        monthsCovered(member?.free ?? 0, num(p.monthly_amount)),
                       )
-                    : monthsCovered(member?.balance ?? 0, num(p.monthly_amount))
+                    : monthsCovered(member?.free ?? 0, num(p.monthly_amount))
                   : 0;
                 return (
                   <tr key={p.id} className={`hover:bg-[var(--hover)] ${p.active ? "" : "opacity-50"}`}>

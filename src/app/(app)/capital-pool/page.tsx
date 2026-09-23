@@ -57,13 +57,14 @@ export default async function CapitalPoolPage() {
       <Card className="mb-6">
         <CardHeader
           title="Members"
-          subtitle="Each member's share is their balance over the pool total, and it sets how the pool's profit is divided"
+          subtitle="A member can take only what is free — their part of money reinvested in unpaid projects is locked until those projects are paid"
         />
         <Table>
           <thead>
             <tr>
               <Th>Member</Th><Th right>Added</Th><Th right>Profit</Th>
-              <Th right>Withdrawn</Th><Th right>Balance</Th><Th right>Share of pool</Th>
+              <Th right>Withdrawn</Th><Th right>Balance</Th><Th right>Invested</Th>
+              <Th right>Free to take</Th><Th right>Share of pool</Th>
             </tr>
           </thead>
           <tbody>
@@ -81,6 +82,8 @@ export default async function CapitalPoolPage() {
                 <Td right className="text-emerald-700">{m.profit ? money(m.profit) : "—"}</Td>
                 <Td right className="text-[var(--muted)]">{m.withdrawn ? `(${money(m.withdrawn)})` : "—"}</Td>
                 <Td right className="font-medium">{money(m.balance)}</Td>
+                <Td right className="text-[var(--muted)]">{m.invested ? money(m.invested) : "—"}</Td>
+                <Td right className="font-medium text-emerald-700">{money(m.free)}</Td>
                 <Td right>
                   <span className="inline-flex items-center gap-2">
                     <span className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border)]">
@@ -100,6 +103,8 @@ export default async function CapitalPoolPage() {
               <Td right>{money(profitEarned)}</Td>
               <Td right>{money(pos.members.reduce((s, m) => s + m.withdrawn, 0))}</Td>
               <Td right>{money(pos.total)}</Td>
+              <Td right>{money(pos.members.reduce((s, m) => s + m.invested, 0))}</Td>
+              <Td right>{money(pos.members.reduce((s, m) => s + m.free, 0))}</Td>
               <Td right>{pos.total > 0 ? "100%" : "—"}</Td>
             </tr>
           </tfoot>

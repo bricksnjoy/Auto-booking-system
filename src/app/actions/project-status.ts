@@ -156,7 +156,12 @@ export async function markPaymentReceived(_prev: unknown, fd: FormData): Promise
     .eq("id", projectId);
   if (upErr) return { error: upErr.message };
 
-  const rows = accruals.map((a) => ({
+  // A private investor is not paid just because the client paid us: what they
+  // are owed stays open until a repayment is recorded against it.
+  const privateInvestor = (a: { share_kind: unknown; investor_id: unknown; pool_member_id: unknown }) =>
+    a.share_kind === "investors" && Boolean(a.investor_id) && !a.pool_member_id;
+
+  const rows = accruals.filter((a) => !privateInvestor(a)).map((a) => ({
     project_id: projectId,
     share_name: a.share_name as string,
     share_kind: a.share_kind as string,

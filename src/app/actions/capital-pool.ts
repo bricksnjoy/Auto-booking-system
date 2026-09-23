@@ -69,6 +69,11 @@ export async function recordWithdrawal(_prev: unknown, fd: FormData): Promise<Po
   if (amount > member.balance) {
     return { error: `${member.name} only has ${member.balance.toFixed(2)} in the pool.` };
   }
+  if (amount > member.free + 0.001) {
+    return {
+      error: `Only ${member.free.toFixed(2)} of ${member.name}'s share is free — ${member.invested.toFixed(2)} is invested in projects not yet paid for.`,
+    };
+  }
   if (amount > pos.available) {
     return {
       error: `Only ${pos.available.toFixed(2)} is free — the rest is reinvested in projects not yet paid for.`,

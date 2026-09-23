@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Card, CardHeader, Table, Th, Td, Empty } from "@/components/ui";
 import { money, date, num } from "@/lib/format";
+import { RepayButton } from "@/components/repay-modal";
 import {
   addInvestment,
   addReinvestment,
@@ -35,6 +36,8 @@ export function InvestmentsPanel({
   directory,
   availableCapital,
   locked = false,
+  projectName = "",
+  owedTo = {},
 }: {
   projectId: string;
   rows: InvestmentRow[];
@@ -42,6 +45,9 @@ export function InvestmentsPanel({
   /** company capital not yet reinvested, for the reinvestment flow */
   availableCapital: number;
   locked?: boolean;
+  projectName?: string;
+  /** what each private investor is still owed on this project */
+  owedTo?: Record<string, { capital: number; profit: number }>;
 }) {
   const [mode, setMode] = useState<null | "investor" | "reinvest">(null);
 
@@ -94,14 +100,15 @@ export function InvestmentsPanel({
           <thead>
             <tr>
               <Th>Source</Th><Th right>Date</Th>
-              <Th right>Amount</Th><Th right>Share</Th><Th right>{""}</Th>
+              <Th right>Amount</Th><Th right>Share</Th><Th right>Owed to them</Th><Th right>{""}</Th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className="hover:bg-[var(--hover)]">
                 <Td className="font-medium">
-                  {r.source_type === "investor" && r.investor_id ? (
+                  {r.source_type === "investor" && r.investor_id &&
+                  rows.findIndex((x) => x.investor_id === r.investor_id) === rows.indexOf(r) ? (
                     <Link href={`/investors/${r.investor_id}`}
                       className="hover:text-[var(--brand)] hover:underline">
                       {r.name}
@@ -121,6 +128,35 @@ export function InvestmentsPanel({
                   {invested > 0 ? `${((num(r.amount) / invested) * 100).toFixed(1)}%` : "—"}
                 </Td>
                 <Td right>
+                  {r.source_type === "investor" && r.investor_id ? (
+                    <span className="inline-flex items-center gap-2">
+                      {(() => {
+                        const o = owedTo[r.investor_id] ?? { capital: 0, profit: 0 };
+                        const total = o.capital + o.profit;
+                        return total > 0.005 ? (
+                          <span className="font-medium text-amber-700">{money(total)}</span>
+                        ) : null;
+                      })()}
+                      <RepayButton target={{
+                        investorId: r.investor_id,
+                        investorName: r.name,
+                        projectId,
+                        projectName,
+                        capitalOwed: owedTo[r.investor_id]?.capital ?? 0,
+                        profitOwed: owedTo[r.investor_id]?.profit ?? 0,
+                      }} />
+                    </span>
+                  ) : (
+                    <span className="text-xs text-[var(--muted)]">
+                      {r.source_type === "capital_pool"
+                        ? "returns to pool"
+                        : r.source_type === "investor"
+                          ? "see above"
+                          : "—"}
+                    </span>
+                  )}
+                </Td>
+                <Td right>
                   {!locked && (
                     <button type="button" onClick={() => deleteInvestment(r.id, projectId)}
                       className="text-xs text-[var(--muted)] hover:text-red-700">
@@ -136,6 +172,12 @@ export function InvestmentsPanel({
               <Td>Total</Td><Td>{""}</Td>
               <Td right>{money(invested)}</Td>
               <Td right>{invested > 0 ? "100%" : "—"}</Td>
+              <Td right className="text-amber-700">
+                {(() => {
+                  const t = Object.values(owedTo).reduce((s, o) => s + o.capital + o.profit, 0);
+                  return t > 0.005 ? money(t) : "";
+                })()}
+              </Td>
               <Td>{""}</Td>
             </tr>
           </tfoot>

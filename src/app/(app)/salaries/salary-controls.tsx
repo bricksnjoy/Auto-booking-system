@@ -24,6 +24,9 @@ export interface MemberOption {
   name: string;
   kind: string;
   balance: number;
+  /** what they can take: their balance less what is invested in projects */
+  free: number;
+  invested: number;
 }
 
 const input =
@@ -81,9 +84,9 @@ function PlanModal({
 
   const member = members.find((m) => m.id === memberId);
   const amount = Number(monthly) || 0;
-  const covered = member ? monthsCovered(member.balance, amount) : 0;
+  const covered = member ? monthsCovered(member.free, amount) : 0;
   const fixedTotal = amount * (Number(months) || 0);
-  const tooMuch = term === "fixed" && member ? fixedTotal > member.balance + 0.001 : false;
+  const tooMuch = term === "fixed" && member ? fixedTotal > member.free + 0.001 : false;
 
   useEffect(() => {
     if (state?.ok) onClose();
@@ -150,7 +153,7 @@ function PlanModal({
                 className={input}>
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name}&apos;s share · {money(m.balance)}
+                    {m.name}&apos;s share · {money(m.free)} free
                   </option>
                 ))}
               </select>
@@ -198,13 +201,17 @@ function PlanModal({
             <p className={`rounded-lg px-3 py-2 text-sm ${
               tooMuch ? "bg-red-50 text-red-700" : "bg-[var(--hover)]"
             }`}>
-              {member.name} holds <span className="font-medium">{money(member.balance)}</span>.{" "}
+              {member.name} has <span className="font-medium">{money(member.free)}</span> free
+              {member.invested > 0 && (
+                <> ({money(member.invested)} more is invested in projects and locked until they are paid)</>
+              )}
+              .{" "}
               {tooMuch
                 ? `${months} months at ${money(amount)} is ${money(fixedTotal)} — more than that. ${covered} month${covered === 1 ? "" : "s"} is the most it covers.`
                 : term === "fixed"
                   ? `${months} months at ${money(amount)} takes ${money(fixedTotal)}.`
                   : `At ${money(amount)} a month that lasts ${covered} month${covered === 1 ? "" : "s"}${
-                      covered && member.balance % amount ? `, the last one ${money(member.balance - amount * (covered - 1))}` : ""
+                      covered && member.free % amount ? `, the last one ${money(member.free - amount * (covered - 1))}` : ""
                     }.`}
             </p>
           )}

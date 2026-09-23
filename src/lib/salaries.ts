@@ -35,13 +35,27 @@ export function planCovers(plan: PlanLike, month: string) {
 }
 
 /**
- * What can actually be paid this month: the monthly amount, cut down to what
- * the paying member still holds — the final month pays out the remainder — and
- * never more than the pool has free in cash.
+ * What can actually be paid this month: the monthly amount, cut down to the
+ * part of the member's share that is free — money of theirs reinvested in an
+ * unpaid project is locked until that project is paid — with the final month
+ * paying out the remainder, and never more than the pool has free in cash.
  */
-export function payableNow(monthly: number, memberBalance: number, poolAvailable: number) {
-  const fromBalance = Math.min(monthly, Math.max(memberBalance, 0));
-  if (fromBalance <= 0) return { amount: 0, reason: "Nothing left of their share in the pool" };
+export function payableNow(
+  monthly: number,
+  memberFree: number,
+  poolAvailable: number,
+  memberBalance = memberFree,
+) {
+  const fromBalance = Math.min(monthly, Math.max(memberFree, 0));
+  if (fromBalance <= 0) {
+    return {
+      amount: 0,
+      reason:
+        memberBalance > 0.005
+          ? "Their share is invested in projects not yet paid for — it frees up when those are paid"
+          : "Nothing left of their share in the pool",
+    };
+  }
   if (poolAvailable < fromBalance) {
     return {
       amount: 0,
@@ -50,7 +64,12 @@ export function payableNow(monthly: number, memberBalance: number, poolAvailable
   }
   return {
     amount: Math.round(fromBalance * 100) / 100,
-    reason: fromBalance < monthly ? "Final payment — the rest of their share" : null,
+    reason:
+      fromBalance >= monthly
+        ? null
+        : memberBalance - fromBalance > 0.005
+          ? "Only this much is free — the rest of their share is invested in projects"
+          : "Final payment — the rest of their share",
   };
 }
 

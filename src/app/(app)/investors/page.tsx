@@ -7,13 +7,17 @@ export const dynamic = "force-dynamic";
 
 export default async function InvestorsPage() {
   const supabase = await createClient();
-  const [{ data: investors }, { data: sources }] = await Promise.all([
+  const [{ data: investors }, { data: sources }, { data: balances }] = await Promise.all([
     supabase.from("investors").select("id, name, phone, email").order("name"),
     supabase
       .from("project_financing_sources")
       .select("investor_id, amount, project_id")
       .eq("source_type", "investor"),
+    supabase.from("investor_balances").select("investor_id, owed"),
   ]);
+
+  const owedBy = new Map<string, number>();
+  for (const b of balances ?? []) owedBy.set(b.investor_id, num(owedBy.get(b.investor_id)) + num(b.owed));
 
   const by = new Map<string, { projects: Set<string>; invested: number }>();
   for (const s of sources ?? []) {
@@ -28,6 +32,7 @@ export default async function InvestorsPage() {
     ...i,
     projects: by.get(i.id)?.projects.size ?? 0,
     invested: by.get(i.id)?.invested ?? 0,
+    owed: owedBy.get(i.id) ?? 0,
   }));
 
   return (
@@ -37,8 +42,9 @@ export default async function InvestorsPage() {
         <Stat label="Investors" value={String(rows.length)}
           hint={`${rows.filter((r) => r.projects > 0).length} with investments`} />
         <Stat label="Total invested" value={money(rows.reduce((s, r) => s + r.invested, 0))} />
-        <Stat label="Active on projects"
-          value={String(rows.filter((r) => r.projects > 0).length)} />
+        <Stat label="Owed to investors" value={money(rows.reduce((s, r) => s + r.owed, 0))}
+          tone={rows.some((r) => r.owed > 0.005) ? "warn" : "default"}
+          hint="Capital and profit not yet paid back" />
       </div>
       <InvestorsTable rows={rows} />
     </div>

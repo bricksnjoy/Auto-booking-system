@@ -37,7 +37,7 @@ export function Sidebar({
   groups: NavGroup[];
   quickActions: NavItem[];
   /** the few figures worth having in view on every page */
-  finance?: { pool: number; available: number; owed: number };
+  finance?: { pool: number; available: number; owed: number; investorOwed: number };
 }) {
   const pathname = usePathname();
 
@@ -121,8 +121,12 @@ export function Sidebar({
                     <span className="font-medium tabular-nums text-emerald-700">{rf(finance.available)}</span>
                   </span>
                   <span className="mt-0.5 flex justify-between">
-                    <span className="text-[var(--muted)]">Owed, unpaid</span>
+                    <span className="text-[var(--muted)]">Profit owed</span>
                     <span className="font-medium tabular-nums text-amber-700">{rf(finance.owed)}</span>
+                  </span>
+                  <span className="mt-0.5 flex justify-between">
+                    <span className="text-[var(--muted)]">Owed to investors</span>
+                    <span className="font-medium tabular-nums text-amber-700">{rf(finance.investorOwed)}</span>
                   </span>
                 </Link>
               )}

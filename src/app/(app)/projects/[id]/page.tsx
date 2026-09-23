@@ -49,6 +49,7 @@ export default async function ProjectDetailPage({
     { data: directory },
     { data: poolSummary },
     { data: dispositions },
+    { data: investorBalances },
   ] = await Promise.all([
     supabase.from("projects").select("*, clients(name)").eq("id", id).single(),
     supabase.from("project_phases").select("*").eq("project_id", id).order("sort_order"),
@@ -84,7 +85,18 @@ export default async function ProjectDetailPage({
       .select("share_name, disposition")
       .eq("project_id", id)
       .eq("entry_type", "accrual"),
+    supabase
+      .from("investor_balances")
+      .select("investor_id, capital_owed, profit_owed")
+      .eq("project_id", id),
   ]);
+
+  const owedTo = Object.fromEntries(
+    (investorBalances ?? []).map((b) => [
+      b.investor_id as string,
+      { capital: num(b.capital_owed), profit: num(b.profit_owed) },
+    ]),
+  );
 
   const investmentRows: InvestmentRow[] = (financingSources ?? []).map((s) => ({
     id: s.id,
@@ -331,6 +343,8 @@ export default async function ProjectDetailPage({
         <div className="xl:col-span-2">
           <InvestmentsPanel
             locked={locked}
+            projectName={p.project_name}
+            owedTo={owedTo}
             projectId={id}
             rows={investmentRows}
             directory={directory ?? []}

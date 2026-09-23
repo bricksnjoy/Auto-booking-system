@@ -12,6 +12,8 @@ export interface InvestorRow extends InvestorValues {
   name: string;
   projects: number;
   invested: number;
+  /** capital plus profit not yet paid back */
+  owed: number;
 }
 
 export function InvestorsTable({ rows }: { rows: InvestorRow[] }) {
@@ -50,7 +52,7 @@ export function InvestorsTable({ rows }: { rows: InvestorRow[] }) {
             <thead>
               <tr>
                 <Th>Investor</Th><Th>Phone</Th><Th>Email</Th>
-                <Th right>Projects</Th><Th right>Invested</Th><Th right>{""}</Th>
+                <Th right>Projects</Th><Th right>Invested</Th><Th right>Owed now</Th><Th right>{""}</Th>
               </tr>
             </thead>
             <tbody>
@@ -65,6 +67,9 @@ export function InvestorsTable({ rows }: { rows: InvestorRow[] }) {
                   <Td className="text-xs text-[var(--muted)]">{i.email ?? "—"}</Td>
                   <Td right>{i.projects || "—"}</Td>
                   <Td right className="font-medium">{i.invested ? money(i.invested) : "—"}</Td>
+                  <Td right className={i.owed > 0.005 ? "font-medium text-amber-700" : "text-[var(--muted)]"}>
+                    {i.owed > 0.005 ? money(i.owed) : i.invested ? "paid back" : "—"}
+                  </Td>
                   <Td right>
                     <button type="button" onClick={() => setEditing(i)}
                       className="text-xs text-[var(--muted)] hover:text-[var(--brand)] hover:underline">

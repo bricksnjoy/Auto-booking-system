@@ -1,0 +1,143 @@
+"use client";
+
+import { useActionState, useEffect, useState } from "react";
+import { money } from "@/lib/format";
+import { recordRepayment, deleteRepayment, type RepaymentResult } from "@/app/actions/repayments";
+
+const input =
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--field)] px-3 py-2 text-sm outline-none focus:border-[var(--brand)]";
+const label = "mb-1.5 block text-sm font-medium";
+
+export interface RepayTarget {
+  investorId: string;
+  investorName: string;
+  projectId: string;
+  projectName: string;
+  capitalOwed: number;
+  profitOwed: number;
+}
+
+export function RepayButton({ target }: { target: RepayTarget }) {
+  const [open, setOpen] = useState(false);
+  const owed = target.capitalOwed + target.profitOwed;
+  if (owed <= 0.005) return <span className="text-xs text-emerald-700">Paid back</span>;
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}
+        className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-2.5 py-1 text-xs font-medium transition-colors hover:bg-[var(--hover)]">
+        Repay
+      </button>
+      {open && <RepayModal target={target} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function RepayModal({ target, onClose }: { target: RepayTarget; onClose: () => void }) {
+  const [state, action, pending] = useActionState(recordRepayment, null as RepaymentResult | null);
+  const [capital, setCapital] = useState(target.capitalOwed > 0 ? target.capitalOwed.toFixed(2) : "");
+  const [profit, setProfit] = useState(target.profitOwed > 0 ? target.profitOwed.toFixed(2) : "");
+  const paying = (Number(capital) || 0) + (Number(profit) || 0);
+  const left = target.capitalOwed + target.profitOwed - paying;
+
+  useEffect(() => {
+    if (state?.ok) onClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Repay investor"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 text-left sm:p-8"
+      onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--field)] shadow-[0_24px_60px_-20px_rgba(13,27,42,0.4)]"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold">Repay {target.investorName}</h2>
+            <p className="text-xs text-[var(--muted)]">{target.projectName}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close"
+            className="text-[var(--muted)] transition-colors hover:text-[var(--text)]">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <form action={action} className="space-y-4 px-5 py-5">
+          <input type="hidden" name="investor_id" value={target.investorId} />
+          <input type="hidden" name="project_id" value={target.projectId} />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="r-capital" className={label}>Capital returned</label>
+              <input id="r-capital" name="capital" type="number" step="0.01" min="0"
+                max={target.capitalOwed} value={capital} onChange={(e) => setCapital(e.target.value)}
+                className={input} />
+              <p className="mt-1 text-xs text-[var(--muted)]">owed {money(target.capitalOwed)}</p>
+            </div>
+            <div>
+              <label htmlFor="r-profit" className={label}>Profit paid</label>
+              <input id="r-profit" name="profit" type="number" step="0.01" min="0"
+                max={target.profitOwed} value={profit} onChange={(e) => setProfit(e.target.value)}
+                className={input} disabled={target.profitOwed <= 0} />
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {target.profitOwed > 0 ? `owed ${money(target.profitOwed)}` : "due once the project is completed"}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="r-date" className={label}>Paid on</label>
+              <input id="r-date" name="paid_on" type="date"
+                defaultValue={new Date().toISOString().slice(0, 10)} className={input} />
+            </div>
+            <div>
+              <label htmlFor="r-note" className={label}>Note</label>
+              <input id="r-note" name="note" className={input} placeholder="Bank transfer" />
+            </div>
+          </div>
+
+          <p className="rounded-lg bg-[var(--hover)] px-3 py-2 text-sm">
+            Paying <span className="font-medium">{money(paying)}</span>
+            {" · "}
+            {left > 0.005 ? (
+              <>still owed afterwards <span className="font-medium text-amber-700">{money(left)}</span></>
+            ) : (
+              <span className="font-medium text-emerald-700">fully paid back</span>
+            )}
+          </p>
+
+          {state?.error && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>
+          )}
+
+          <div className="flex items-center gap-3">
+            <button type="submit" disabled={pending || paying <= 0}
+              className="rounded-lg bg-[var(--brand)] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50">
+              {pending ? "Saving…" : "Record repayment"}
+            </button>
+            <button type="button" onClick={onClose} className="text-sm text-[var(--muted)] hover:underline">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export function UndoRepayment({ id }: { id: string }) {
+  return (
+    <button type="button" onClick={() => deleteRepayment(id)}
+      className="text-xs text-[var(--muted)] hover:text-red-700">
+      Undo
+    </button>
+  );
+}

@@ -25,7 +25,7 @@ export default async function AppLayout({
       .eq("id", user.id)
       .single(),
     supabase.from("company").select("gst_registered").eq("id", true).maybeSingle(),
-    supabase.from("finance_summary").select("pool_total, pool_deployed, owed").maybeSingle(),
+    supabase.from("finance_summary").select("pool_total, pool_deployed, owed, investor_owed").maybeSingle(),
   ]);
 
   const name = profile?.full_name || user.email || "User";
@@ -51,6 +51,7 @@ export default async function AppLayout({
                   pool: Number(finance.pool_total ?? 0),
                   available: Number(finance.pool_total ?? 0) - Number(finance.pool_deployed ?? 0),
                   owed: Number(finance.owed ?? 0),
+                  investorOwed: Number(finance.investor_owed ?? 0),
                 }
               : undefined
           }
