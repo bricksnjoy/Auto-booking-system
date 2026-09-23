@@ -40,6 +40,7 @@ export const NAV: NavGroup[] = [
     items: [
       { href: "/quotations", label: "Quotations", roles: MONEY },
       { href: "/invoices", label: "Invoices", roles: MONEY },
+      { href: "/estimator", label: "Cabinet Estimator", roles: MONEY },
     ],
   },
   {

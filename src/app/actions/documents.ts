@@ -173,6 +173,8 @@ export interface QuotationInput {
   terms: string;
   notes: string;
   items: LineInput[];
+  /** the cabinet estimate this quotation was made from */
+  estimate_id?: string | null;
 }
 
 async function invoiceCount(supabase: Supabase, quotationId: string) {
@@ -266,6 +268,11 @@ export async function saveQuotation(_prev: unknown, fd: FormData): Promise<DocRe
     .from("quotation_items")
     .insert(items.map((l, i) => ({ ...l, quotation_id: id, sort_order: i })));
   if (iErr) return { error: iErr.message };
+
+  if (q.estimate_id) {
+    await supabase.from("cabinet_estimates").update({ quotation_id: id }).eq("id", q.estimate_id);
+    revalidatePath("/estimator");
+  }
 
   refresh(fields.project_id);
   if (oldProject && oldProject !== fields.project_id) refresh(oldProject);

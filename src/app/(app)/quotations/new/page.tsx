@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui";
 import { addDays } from "@/lib/documents";
+import { quotationLines, type EstimateInput, type EstimateResult } from "@/lib/estimator";
 import { QuotationForm } from "../quotation-form";
 import { formData } from "../form-data";
 
@@ -10,12 +11,19 @@ export const dynamic = "force-dynamic";
 export default async function NewQuotationPage({
   searchParams,
 }: {
-  searchParams: Promise<{ project?: string }>;
+  searchParams: Promise<{ project?: string; estimate?: string }>;
 }) {
-  const { project: projectId } = await searchParams;
+  const { project: projectParam, estimate: estimateId } = await searchParams;
   const supabase = await createClient();
   const { templates, kit, projects, clients } = await formData(supabase);
   const template = templates[0];
+
+  // made from a cabinet estimate: its lines, its project
+  const { data: est } = estimateId
+    ? await supabase.from("cabinet_estimates").select("id, name, project_id, inputs, result").eq("id", estimateId).maybeSingle()
+    : { data: null };
+  const estLines = est ? quotationLines(est.inputs as EstimateInput, est.result as EstimateResult) : null;
+  const projectId = projectParam ?? est?.project_id ?? undefined;
   const today = new Date().toISOString().slice(0, 10);
 
   // started from a project: it arrives already addressed to that project's client
@@ -42,7 +50,7 @@ export default async function NewQuotationPage({
             client_id: client?.id ?? null,
             to_name: client?.name ?? "",
             to_details: client ? [client.phone, client.address].filter(Boolean).join("\n") : "",
-            title: project?.name ?? "",
+            title: project?.name ?? est?.name ?? "",
             issue_date: today,
             valid_until: template.body.valid_days ? addDays(today, template.body.valid_days) : null,
             duration: "",
@@ -51,7 +59,10 @@ export default async function NewQuotationPage({
             tax_rate: template.body.tax_rate,
             terms: template.tail.terms,
             notes: "",
-            items: [{ title: "", description: "", unit: "Nos", qty: 1, rate: 0 }],
+            items: estLines?.length
+              ? estLines.map((l) => ({ title: l.title, description: l.description, unit: l.unit, qty: l.qty, rate: l.rate }))
+              : [{ title: "", description: "", unit: "Nos", qty: 1, rate: 0 }],
+            estimate_id: est?.id ?? null,
           }} />
       )}
     </div>
