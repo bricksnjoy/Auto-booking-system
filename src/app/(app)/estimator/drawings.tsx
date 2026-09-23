@@ -36,8 +36,10 @@ export function Drawings({
   name: string;
 }) {
   const [tab, setTab] = useState<Tab>("plan");
+  const [elevView, setElevView] = useState<View>("front");
   const allRef = useRef<HTMLDivElement>(null);
   if (!result.groups.length) return null;
+  const wallCount = Math.max(...result.groups.map((g) => SHAPE_WALLS[g.shape]));
 
   const drawings = {
     plan: result.groups.map((g) => (
@@ -46,12 +48,11 @@ export function Drawings({
         <Plan input={input} group={g.group} settings={settings} />
       </Figure>
     )),
-    elevations: result.groups.flatMap((g) =>
-      Array.from({ length: SHAPE_WALLS[g.shape] }, (_, wall) => (
-        <Figure key={`${g.group}-${wall}`}
-          title={`${g.group === "bottom" ? "Bottom" : "Top"} cabinets — wall ${"ABC"[wall]}`}
-          file={`${slug(name)}-${g.group}-wall-${"abc"[wall]}`}>
-          <Elevation input={input} result={result} group={g.group} wall={wall} settings={settings} />
+    elevations: (["front", "inside"] as View[]).map((v) =>
+      Array.from({ length: wallCount }, (_, wall) => (
+        <Figure key={`${v}-${wall}`} title={`Wall ${"ABC"[wall]} — ${v === "front" ? "front" : "inside"}`}
+          file={`${slug(name)}-wall-${"abc"[wall]}-${v}`}>
+          <WallElevation input={input} result={result} wall={wall} settings={settings} view={v} />
         </Figure>
       )),
     ),
@@ -116,12 +117,26 @@ export function Drawings({
         </p>
       )}
 
-      <div className="grid gap-5 px-5 py-4 xl:grid-cols-2">{drawings[tab]}</div>
+      {tab === "elevations" && (
+        <div className="flex items-center gap-2 px-5 pt-4 text-xs">
+          <span className="text-[var(--muted)]">Show</span>
+          {(["front", "inside"] as View[]).map((v) => (
+            <button key={v} type="button" onClick={() => setElevView(v)} aria-pressed={elevView === v}
+              className={`rounded-full px-3 py-1 font-medium ${elevView === v ? "bg-[var(--brand)] text-white" : "border border-[var(--border)] text-[var(--muted)]"}`}>
+              {v === "front" ? "Front" : "Inside"}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="grid gap-5 px-5 py-4 xl:grid-cols-2">
+        {tab === "elevations" ? drawings.elevations[elevView === "front" ? 0 : 1] : drawings[tab]}
+      </div>
 
       {/* every drawing, off screen, so "Download all" prints the lot whichever tab is open */}
       <div ref={allRef} className="hidden" aria-hidden="true">
         {drawings.plan}
-        {drawings.elevations}
+        {drawings.elevations.flat()}
         {drawings.cutting}
       </div>
     </section>
@@ -237,85 +252,203 @@ function Plan({ input, group, settings }: { input: EstimateInput; group: Group; 
 
 /* ─────────────── elevation: one wall from the front ─────────────── */
 
-function Elevation({
+type View = "front" | "inside";
+
+const TILE = 600 / 25.4; // a 600mm tile, in inches
+const MARBLE_IN = 15 / 25.4; // a 15mm slab
+const PANEL = 0.75; // carcass board, drawn at 3/4in so it reads at this scale
+const FILL_TILE = "#f3f5f8";
+const FILL_MARBLE = "#e7e2d8";
+const FILL_INSIDE = "#f7f4ee";
+
+/**
+ * One wall, floor to top cabinets: bottom cabinets on their plinth, the marble
+ * top, a row of tiles, and the top cabinets — from the front, or with the
+ * doors off to show the shelves and drawer boxes inside.
+ */
+function WallElevation({
   input,
   result,
-  group,
   wall,
   settings,
+  view,
 }: {
   input: EstimateInput;
   result: EstimateResult;
-  group: Group;
   wall: number;
   settings: Settings;
+  view: View;
 }) {
-  const g = result.groups.find((x) => x.group === group)!;
   const unitToIn = input.unit === "ft" ? 12 : input.unit === "cm" ? 1 / 2.54 : 1;
-  const runs = input[group].runs.slice(0, SHAPE_WALLS[g.shape]).map((v) => (Number(v) || 0) * unitToIn);
-  const len = runs[wall] ?? 0;
-  const H = group === "bottom" ? settings.bottom_height_in : settings.top_height_in;
-  const mod = group === "bottom" ? settings.bottom_module_in : settings.top_module_in;
-  const plinth = group === "bottom" ? 4 : 0;
-  const modules = Math.max(1, Math.round(len / mod));
-  const modW = len / modules;
+  const runOf = (g: Group) => {
+    const gr = result.groups.find((x) => x.group === g);
+    if (!gr || wall >= SHAPE_WALLS[gr.shape]) return null;
+    return { gr, len: (Number(input[g].runs[wall]) || 0) * unitToIn };
+  };
+  const bottom = runOf("bottom");
+  const top = runOf("top");
 
-  // drawers stack three to a module, starting at wall A; the rest of the fronts are pairs of doors
-  const modulesBefore = runs.slice(0, wall).reduce((s, r) => s + Math.max(1, Math.round(r / mod)), 0);
-  const drawerModules = Math.ceil(g.drawers / 3);
+  const topH = top ? settings.top_height_in : 0;
+  const gap = bottom ? settings.top_gap_in : 0;
+  const marble = bottom ? Math.max(MARBLE_IN, 1) : 0;
+  const bottomH = bottom ? settings.bottom_height_in : 0;
+  const yTiles = topH;
+  const yMarble = topH + gap;
+  const yBottom = yMarble + marble;
+  const H = yBottom + bottomH || 1;
+  const W = Math.max(bottom?.len ?? 0, top?.len ?? 0) || 1;
+  const pad = Math.max(W, H) * 0.13;
+  const fs = Math.max(W, H) / 42;
 
-  const W = len || 1;
-  const pad = Math.max(W, H) * 0.14;
-  const fs = Math.max(W, H) / 40;
-  const gap = 0.25;
+  // drawers stack three to a module, filling from wall A onward
+  const drawerModulesBefore = (g: Group) =>
+    input[g].runs
+      .slice(0, wall)
+      .reduce((s, r) => s + Math.max(1, Math.round(((Number(r) || 0) * unitToIn) / (g === "bottom" ? settings.bottom_module_in : settings.top_module_in))), 0);
+
+  const row = (g: Group, len: number, y0: number, h: number) => {
+    const gr = result.groups.find((x) => x.group === g)!;
+    const mod = g === "bottom" ? settings.bottom_module_in : settings.top_module_in;
+    const plinth = g === "bottom" ? 4 : 0;
+    const modules = Math.max(1, Math.round(len / mod));
+    const modW = len / modules;
+    const before = drawerModulesBefore(g);
+    const drawerModules = Math.ceil(gr.drawers / 3);
+    const shelves = input[g].shelves;
+    const bodyH = h - plinth;
+    const gapF = 0.25;
+
+    return (
+      <g>
+        <rect x={0} y={y0} width={len} height={h} fill={view === "inside" ? FILL_INSIDE : "#fff"} stroke={INK} strokeWidth={fs / 7} />
+        {plinth > 0 && (view === "front" ? (
+          <rect x={0} y={y0 + bodyH} width={len} height={plinth} fill="#c9ced6" stroke={INK} strokeWidth={fs / 12} />
+        ) : (
+          // with the skirting off: the legs
+          <g>
+            <line x1={0} y1={y0 + bodyH} x2={len} y2={y0 + bodyH} stroke={INK} strokeWidth={fs / 10} />
+            {Array.from({ length: modules }, (_, k) => [k * modW + 2, (k + 1) * modW - 3.5]).flat().map((lx, i) => (
+              <rect key={i} x={lx} y={y0 + bodyH} width={1.5} height={plinth} fill={MUTED} />
+            ))}
+          </g>
+        ))}
+        {Array.from({ length: modules }, (_, k) => {
+          const x = k * modW;
+          const isDrawers = before + k < drawerModules;
+          const drawersHere = isDrawers ? Math.min(3, gr.drawers - (before + k) * 3) : 0;
+          if (view === "inside") {
+            return (
+              <g key={k}>
+                {/* the two side panels and the bottom panel of this module */}
+                <rect x={x} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                <rect x={x + modW - PANEL} y={y0} width={PANEL} height={bodyH} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                <rect x={x + PANEL} y={y0 + bodyH - PANEL} width={modW - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                <rect x={x + PANEL} y={y0} width={modW - PANEL * 2} height={g === "top" ? PANEL : 3} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                {isDrawers
+                  ? Array.from({ length: drawersHere }, (_, d) => {
+                      const dh = (bodyH - 3) / drawersHere;
+                      const dy = y0 + 3 + d * dh;
+                      return (
+                        <g key={d}>
+                          <rect x={x + PANEL + 0.6} y={dy + dh * 0.25} width={modW - PANEL * 2 - 1.2} height={dh * 0.65}
+                            fill="#fff" stroke={NAVY} strokeWidth={fs / 12} strokeDasharray={`${fs / 3} ${fs / 5}`} />
+                          <text x={x + modW / 2} y={dy + dh * 0.58} fontSize={fs * 0.6} fill={MUTED} textAnchor="middle" dominantBaseline="middle">
+                            drawer box
+                          </text>
+                        </g>
+                      );
+                    })
+                  : Array.from({ length: shelves }, (_, sIdx) => {
+                      const sy = y0 + (bodyH * (sIdx + 1)) / (shelves + 1);
+                      return (
+                        <g key={sIdx}>
+                          <rect x={x + PANEL} y={sy} width={modW - PANEL * 2} height={PANEL} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 16} />
+                          {k === 0 && (
+                            <text x={x + modW / 2} y={sy - fs * 0.5} fontSize={fs * 0.6} fill={MUTED} textAnchor="middle">shelf</text>
+                          )}
+                        </g>
+                      );
+                    })}
+              </g>
+            );
+          }
+          return (
+            <g key={k}>
+              {k > 0 && <line x1={x} y1={y0} x2={x} y2={y0 + bodyH} stroke={INK} strokeWidth={fs / 10} />}
+              {isDrawers
+                ? Array.from({ length: drawersHere }, (_, d) => {
+                    const dh = bodyH / drawersHere;
+                    return (
+                      <g key={d}>
+                        <rect x={x + gapF} y={y0 + d * dh + gapF} width={modW - gapF * 2} height={dh - gapF * 2} fill={FILL_TOP} stroke={NAVY} strokeWidth={fs / 12} />
+                        <line x1={x + modW * 0.35} y1={y0 + d * dh + dh * 0.3} x2={x + modW * 0.65} y2={y0 + d * dh + dh * 0.3} stroke={NAVY} strokeWidth={fs / 5} strokeLinecap="round" />
+                      </g>
+                    );
+                  })
+                : [0, 1].map((d) => (
+                    <g key={d}>
+                      <rect x={x + d * (modW / 2) + gapF} y={y0 + gapF} width={modW / 2 - gapF * 2} height={bodyH - gapF * 2} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 12} />
+                      <line x1={x + modW / 2 + (d ? 1.2 : -1.2)} y1={y0 + (g === "bottom" ? bodyH * 0.12 : bodyH * 0.72)}
+                        x2={x + modW / 2 + (d ? 1.2 : -1.2)} y2={y0 + (g === "bottom" ? bodyH * 0.27 : bodyH * 0.87)}
+                        stroke={NAVY} strokeWidth={fs / 5} strokeLinecap="round" />
+                    </g>
+                  ))}
+            </g>
+          );
+        })}
+      </g>
+    );
+  };
+
+  // the right-hand chain of heights, floor to top
+  const chain: [number, number, string][] = [];
+  if (top) chain.push([0, topH, `top ${f1(topH)}in`]);
+  if (bottom) {
+    chain.push([yTiles, yMarble, `tiles ${f1(gap)}in`]);
+    chain.push([yBottom, H, `bottom ${f1(bottomH)}in`]);
+  }
 
   return (
-    <svg viewBox={`${-pad} ${-pad} ${W + pad * 2} ${H + pad * 2}`} xmlns="http://www.w3.org/2000/svg" role="img"
-      aria-label={`${group} cabinets wall ${"ABC"[wall]}`} style={{ width: "100%", height: "auto", background: "#fff" }}>
-      <rect x={0} y={0} width={W} height={H} fill="#fff" stroke={INK} strokeWidth={fs / 7} />
-      {plinth > 0 && <rect x={0} y={H - plinth} width={W} height={plinth} fill="#c9ced6" stroke={INK} strokeWidth={fs / 12} />}
-      {Array.from({ length: modules }, (_, k) => {
-        const x = k * modW;
-        const bodyH = H - plinth;
-        const isDrawers = modulesBefore + k < drawerModules;
-        const drawersHere = isDrawers ? Math.min(3, g.drawers - (modulesBefore + k) * 3) : 0;
-        return (
-          <g key={k}>
-            {k > 0 && <line x1={x} y1={0} x2={x} y2={bodyH} stroke={INK} strokeWidth={fs / 10} />}
-            {isDrawers
-              ? Array.from({ length: drawersHere }, (_, d) => {
-                  const dh = bodyH / drawersHere;
-                  return (
-                    <g key={d}>
-                      <rect x={x + gap} y={d * dh + gap} width={modW - gap * 2} height={dh - gap * 2} fill={FILL_TOP} stroke={NAVY} strokeWidth={fs / 12} />
-                      <line x1={x + modW * 0.35} y1={d * dh + dh * 0.3} x2={x + modW * 0.65} y2={d * dh + dh * 0.3} stroke={NAVY} strokeWidth={fs / 5} strokeLinecap="round" />
-                    </g>
-                  );
-                })
-              : [0, 1].map((d) => (
-                  <g key={d}>
-                    <rect x={x + d * (modW / 2) + gap} y={gap} width={modW / 2 - gap * 2} height={bodyH - gap * 2} fill={FILL_BOTTOM} stroke={NAVY} strokeWidth={fs / 12} />
-                    {/* handles meet in the middle; hinges sit on the outer edges */}
-                    <line x1={x + modW / 2 + (d ? 1.2 : -1.2)} y1={group === "bottom" ? bodyH * 0.15 : bodyH * 0.72}
-                      x2={x + modW / 2 + (d ? 1.2 : -1.2)} y2={group === "bottom" ? bodyH * 0.3 : bodyH * 0.87}
-                      stroke={NAVY} strokeWidth={fs / 5} strokeLinecap="round" />
-                  </g>
-                ))}
-          </g>
-        );
-      })}
-      {/* dimensions */}
-      <Dim x1={0} y1={H + fs * 1.6} x2={W} y2={H + fs * 1.6} fs={fs} text={`${f1(len)}in (${ftIn(len)})`} />
-      <Dim x1={-fs * 1.6} y1={0} x2={-fs * 1.6} y2={H} fs={fs} text={`${f1(H)}in`} vertical />
-      <text x={W / 2} y={-fs * 1.1} fontSize={fs * 0.8} fill={MUTED} textAnchor="middle">
-        {modules} module{modules === 1 ? "" : "s"} · {f1(modW)}in each · indicative door and drawer layout
+    <svg viewBox={`${-pad} ${-pad} ${W + pad * 2.4} ${H + pad * 2}`} xmlns="http://www.w3.org/2000/svg" role="img"
+      aria-label={`wall ${"ABC"[wall]} ${view}`} style={{ width: "100%", height: "auto", background: "#fff" }}>
+      {top && row("top", top.len, 0, topH)}
+      {bottom && (
+        <g>
+          {/* the tiled backsplash: 600mm tiles */}
+          <rect x={0} y={yTiles} width={bottom.len} height={gap} fill={FILL_TILE} stroke={MUTED} strokeWidth={fs / 14} />
+          {Array.from({ length: Math.floor(bottom.len / TILE) }, (_, i) => (
+            <line key={`v${i}`} x1={(i + 1) * TILE} y1={yTiles} x2={(i + 1) * TILE} y2={yMarble} stroke={MUTED} strokeWidth={fs / 16} />
+          ))}
+          {Array.from({ length: Math.floor((gap - 0.01) / TILE) }, (_, i) => (
+            <line key={`h${i}`} x1={0} y1={yTiles + (i + 1) * TILE} x2={bottom.len} y2={yTiles + (i + 1) * TILE} stroke={MUTED} strokeWidth={fs / 16} />
+          ))}
+          <text x={bottom.len / 2} y={yTiles + gap / 2} fontSize={fs * 0.8} fill={MUTED} textAnchor="middle" dominantBaseline="middle">
+            wall tiles 600 × 600mm
+          </text>
+          {/* the marble top, overhanging a little */}
+          <rect x={-0.75} y={yMarble} width={bottom.len + 1.5} height={marble} fill={FILL_MARBLE} stroke={INK} strokeWidth={fs / 12} />
+          {row("bottom", bottom.len, yBottom, bottomH)}
+          <Dim x1={0} y1={H + fs * 1.6} x2={bottom.len} y2={H + fs * 1.6} fs={fs} text={`${f1(bottom.len)}in (${ftIn(bottom.len)})`} />
+        </g>
+      )}
+      {top && !bottom && (
+        <Dim x1={0} y1={H + fs * 1.6} x2={top.len} y2={H + fs * 1.6} fs={fs} text={`${f1(top.len)}in (${ftIn(top.len)})`} />
+      )}
+      {chain.map(([y1, y2, t], i) => (
+        <Dim key={i} x1={W + fs * 1.8} y1={y1} x2={W + fs * 1.8} y2={y2} fs={fs} text={t} vertical right />
+      ))}
+      {bottom && (
+        <text x={-fs * 0.6} y={yMarble + marble / 2} fontSize={fs * 0.7} fill={MUTED} textAnchor="end" dominantBaseline="middle">marble 15mm</text>
+      )}
+      <text x={W / 2} y={-fs * 1.2} fontSize={fs * 0.8} fill={MUTED} textAnchor="middle">
+        {view === "inside" ? "doors and skirting off: shelves, drawer boxes and legs" : "indicative door and drawer layout"}
       </text>
     </svg>
   );
 }
 
-function Dim({ x1, y1, x2, y2, fs, text, vertical }: {
-  x1: number; y1: number; x2: number; y2: number; fs: number; text: string; vertical?: boolean;
+function Dim({ x1, y1, x2, y2, fs, text, vertical, right }: {
+  x1: number; y1: number; x2: number; y2: number; fs: number; text: string; vertical?: boolean; right?: boolean;
 }) {
   const t = fs / 2;
   const mx = (x1 + x2) / 2;
@@ -334,9 +467,9 @@ function Dim({ x1, y1, x2, y2, fs, text, vertical }: {
           <line x1={x2} y1={y2 - t} x2={x2} y2={y2 + t} />
         </>
       )}
-      <text x={vertical ? mx - fs * 0.7 : mx} y={vertical ? my : my + fs * 1.2} fontSize={fs * 0.9} fill={INK} stroke="none"
+      <text x={vertical ? mx + (right ? fs * 0.8 : -fs * 0.7) : mx} y={vertical ? my : my + fs * 1.2} fontSize={fs * 0.9} fill={INK} stroke="none"
         textAnchor="middle" dominantBaseline="middle"
-        transform={vertical ? `rotate(-90 ${mx - fs * 0.7} ${my})` : undefined}>
+        transform={vertical ? `rotate(-90 ${mx + (right ? fs * 0.8 : -fs * 0.7)} ${my})` : undefined}>
         {text}
       </text>
     </g>

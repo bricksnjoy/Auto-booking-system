@@ -64,7 +64,9 @@ export function Estimator({
 
   const result = useMemo(() => estimate(inp, materials, parts, settings), [inp, materials, parts, settings]);
   const setGroup = (g: Group, patch: Partial<GroupInput>) => setInp((x) => ({ ...x, [g]: { ...x[g], ...patch } }));
-  const unpriced = materials.filter((m) => m.price === 0 && result.accessories.some((a) => a.material_id === m.id));
+  const unpriced = materials.filter(
+    (m) => m.price === 0 && (result.accessories.some((a) => a.material_id === m.id) || result.boards.some((b) => b.material_id === m.id)),
+  );
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -154,7 +156,7 @@ export function Estimator({
             )}
 
             <div className="px-5 py-3">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">Boards to buy</p>
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">Sheets to buy — boards, tiles, marble</p>
               {result.boards.length === 0 ? (
                 <p className="text-sm text-[var(--muted)]">—</p>
               ) : (

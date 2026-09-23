@@ -9,7 +9,7 @@ import {
   saveSettings,
   type EstimatorResult,
 } from "@/app/actions/estimator";
-import type { Material, Part, Settings } from "@/lib/estimator";
+import { sheetSize, type Material, type Part, type Settings } from "@/lib/estimator";
 import { money } from "@/lib/format";
 
 const input =
@@ -90,8 +90,11 @@ function MaterialRow({ m, kind }: { m?: Material; kind?: "board" | "accessory" }
       </td>
       {k === "board" ? (
         <>
-          <td className="px-2 py-1.5"><input form={formId} name="length_ft" type="number" step="0.01" defaultValue={m?.length_ft ?? 8} className={input} onChange={() => setDirty(true)} aria-label="Length in feet" /></td>
-          <td className="px-2 py-1.5"><input form={formId} name="width_ft" type="number" step="0.01" defaultValue={m?.width_ft ?? 4} className={input} onChange={() => setDirty(true)} aria-label="Width in feet" /></td>
+          <td className="px-2 py-1.5">
+            <input form={formId} name="length_ft" type="number" step="any" defaultValue={m?.length_ft ?? 8} className={input} onChange={() => setDirty(true)} aria-label="Length in feet" />
+            {m && <span className="text-[10px] text-[var(--muted)]">{sheetSize(m)}</span>}
+          </td>
+          <td className="px-2 py-1.5"><input form={formId} name="width_ft" type="number" step="any" defaultValue={m?.width_ft ?? 4} className={input} onChange={() => setDirty(true)} aria-label="Width in feet" /></td>
           <td className="px-2 py-1.5"><input form={formId} name="thickness_mm" type="number" step="0.1" defaultValue={m?.thickness_mm ?? ""} className={input} onChange={() => setDirty(true)} aria-label="Thickness in mm" /></td>
         </>
       ) : (

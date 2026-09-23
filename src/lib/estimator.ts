@@ -142,6 +142,16 @@ export interface EstimateResult {
   price: number;
 }
 
+/** 8ft × 4ft × 8mm — or, for sheets sold in metric, 3000 × 750 × 15mm */
+export function sheetSize(m: Pick<Material, "length_ft" | "width_ft" | "thickness_mm">) {
+  const l = Number(m.length_ft) || 0;
+  const w = Number(m.width_ft) || 0;
+  const t = m.thickness_mm ? ` × ${Number(m.thickness_mm)}mm` : "";
+  const whole = (v: number) => Math.abs(v - Math.round(v)) < 0.01;
+  if (whole(l) && whole(w)) return `${Math.round(l)}ft × ${Math.round(w)}ft${t}`;
+  return `${Math.round(l * 304.8)} × ${Math.round(w * 304.8)}${t || "mm"}`;
+}
+
 export const SHAPE_WALLS: Record<Shape, number> = { none: 0, I: 1, L: 2, U: 3 };
 const CORNERS: Record<Shape, number> = { none: 0, I: 0, L: 1, U: 2 };
 
@@ -255,7 +265,7 @@ export function estimate(
     boards.push({
       material_id: id,
       name: m.name,
-      size: `${Number(m.length_ft)}ft × ${Number(m.width_ft)}ft${m.thickness_mm ? ` × ${Number(m.thickness_mm)}mm` : ""}`,
+      size: sheetSize(m),
       area_in2: area,
       sheets_exact: r2(exact),
       sheets_layout: laid,
