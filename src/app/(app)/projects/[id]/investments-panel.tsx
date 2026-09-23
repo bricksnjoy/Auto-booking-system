@@ -70,10 +70,17 @@ export function InvestmentsPanel({
       />
 
       {mode === "investor" && (
-        <AddInvestor projectId={projectId} directory={directory} onDone={() => setMode(null)} />
+        <Modal title="Add investor" subtitle="Pick someone from the directory, or add them"
+          onClose={() => setMode(null)}>
+          <AddInvestor projectId={projectId} directory={directory} onDone={() => setMode(null)} />
+        </Modal>
       )}
       {mode === "reinvest" && (
-        <AddReinvestment projectId={projectId} available={availableCapital} onDone={() => setMode(null)} />
+        <Modal title="Reinvest from the capital pool"
+          subtitle="The pool invests in this project like any other backer"
+          onClose={() => setMode(null)}>
+          <AddReinvestment projectId={projectId} available={availableCapital} onDone={() => setMode(null)} />
+        </Modal>
       )}
 
       {rows.length === 0 ? (
@@ -167,7 +174,7 @@ function AddInvestor({
   const step2 = picked || creating;
 
   return (
-    <form ref={formRef} action={action} className="space-y-3 border-b border-[var(--border)] px-5 py-4">
+    <form ref={formRef} action={action} className="space-y-3 px-5 py-5">
       <input type="hidden" name="project_id" value={projectId} />
 
       {/* step 1 — choose an investor, or make one */}
@@ -281,14 +288,24 @@ function AddReinvestment({
   }, [state]);
 
   return (
-    <form ref={formRef} action={action} className="space-y-3 border-b border-[var(--border)] px-5 py-4">
+    <form ref={formRef} action={action} className="space-y-3 px-5 py-5">
       <input type="hidden" name="project_id" value={projectId} />
-      <p className="text-sm">
-        <span className="text-[var(--muted)]">Capital pool available:</span>{" "}
-        <span className={`font-medium ${available > 0 ? "text-emerald-700" : "text-[var(--muted)]"}`}>
-          {money(available)}
-        </span>
-      </p>
+      {available > 0 ? (
+        <p className="text-sm">
+          <span className="text-[var(--muted)]">Available in the pool:</span>{" "}
+          <span className="font-medium text-emerald-700">{money(available)}</span>
+        </p>
+      ) : (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {available < 0
+            ? `The pool is over-committed by ${money(-available)} — more is reinvested than has been put in. `
+            : "Nothing is free in the pool right now. "}
+          <Link href="/capital-pool" className="font-medium underline">
+            Add money to the pool
+          </Link>{" "}
+          first.
+        </p>
+      )}
       <p className="text-xs text-[var(--muted)]">
         The pool invests like any other backer. Its share of the investors&apos; profit is divided
         among its members by how much of the pool each holds today.
@@ -316,5 +333,46 @@ function AddReinvestment({
           className="text-sm text-[var(--muted)] hover:underline">Cancel</button>
       </div>
     </form>
+  );
+}
+
+function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title}
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8"
+      onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--field)] shadow-[0_24px_60px_-20px_rgba(13,27,42,0.4)]"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold">{title}</h2>
+            <p className="text-xs text-[var(--muted)]">{subtitle}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close"
+            className="text-[var(--muted)] transition-colors hover:text-[var(--text)]">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
