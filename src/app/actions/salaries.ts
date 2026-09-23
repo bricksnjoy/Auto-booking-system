@@ -214,10 +214,13 @@ export async function undoSalaryPayment(id: string): Promise<SalaryResult> {
   const supabase = await createClient();
   const { data: payment } = await supabase
     .from("salary_payments")
-    .select("plan_id, pool_entry_id")
+    .select("plan_id, pool_entry_id, slip_path")
     .eq("id", id)
     .maybeSingle();
   if (!payment) return { error: "That payment no longer exists." };
+
+  // an undone payment takes its slip with it
+  if (payment.slip_path) await supabase.storage.from("slips").remove([payment.slip_path]);
 
   if (payment.pool_entry_id) {
     await supabase.from("capital_pool_entries").delete().eq("id", payment.pool_entry_id);
@@ -246,5 +249,75 @@ export async function stopSalaryPlan(id: string): Promise<SalaryResult> {
   if (error) return { error: error.message };
 
   refresh();
+  return { ok: true };
+}
+
+const SLIP_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf"];
+
+/** Attach — or replace — the slip showing a salary payment went out. */
+export async function uploadSlip(_prev: unknown, fd: FormData): Promise<SalaryResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+
+  const paymentId = String(fd.get("payment_id") ?? "");
+  const file = fd.get("slip");
+  if (!paymentId) return { error: "Missing payment." };
+  if (!(file instanceof File) || file.size === 0) return { error: "Choose a photo of the slip." };
+  if (file.size > 4 * 1024 * 1024) {
+    return { error: "That file is larger than 4MB — a photo of the slip is smaller than a scanned PDF." };
+  }
+  if (file.type && !SLIP_TYPES.includes(file.type)) {
+    return { error: "Upload a photo (JPG, PNG, WebP) or a PDF." };
+  }
+
+  const { data: payment } = await supabase
+    .from("salary_payments")
+    .select("id, slip_path")
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (!payment) return { error: "That payment no longer exists." };
+
+  const ext = (file.name.split(".").pop() ?? "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const path = `${paymentId}/${Date.now()}.${ext}`;
+  const { error: upErr } = await supabase.storage
+    .from("slips")
+    .upload(path, Buffer.from(await file.arrayBuffer()), {
+      contentType: file.type || "image/jpeg",
+    });
+  if (upErr) return { error: `Could not save the slip: ${upErr.message}` };
+
+  const { error } = await supabase
+    .from("salary_payments")
+    .update({ slip_path: path, slip_uploaded_at: new Date().toISOString() })
+    .eq("id", paymentId);
+  if (error) {
+    await supabase.storage.from("slips").remove([path]);
+    return { error: error.message };
+  }
+
+  // the slip it replaces is no longer referenced by anything
+  if (payment.slip_path) await supabase.storage.from("slips").remove([payment.slip_path]);
+
+  revalidatePath("/salaries");
+  revalidatePath("/people", "layout");
+  return { ok: true };
+}
+
+export async function removeSlip(paymentId: string): Promise<SalaryResult> {
+  const supabase = await createClient();
+  const { data: payment } = await supabase
+    .from("salary_payments")
+    .select("slip_path")
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (payment?.slip_path) await supabase.storage.from("slips").remove([payment.slip_path]);
+  await supabase
+    .from("salary_payments")
+    .update({ slip_path: null, slip_uploaded_at: null })
+    .eq("id", paymentId);
+  revalidatePath("/salaries");
   return { ok: true };
 }

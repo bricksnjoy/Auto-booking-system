@@ -12,6 +12,7 @@ import {
   planCovers,
 } from "@/lib/salaries";
 import { NewPlanButton, PayAllButton, PayButton, StopPlan, UndoPayment } from "./salary-controls";
+import { SlipCell } from "./slip-cell";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export default async function SalariesPage({
       .order("created_at", { ascending: false }),
     supabase
       .from("salary_payments")
-      .select("id, plan_id, person_id, month, amount, paid_on, people(name)")
+      .select("id, plan_id, person_id, month, amount, paid_on, slip_path, people(name)")
       .order("month", { ascending: false })
       .order("paid_on", { ascending: false }),
     supabase
@@ -44,6 +45,19 @@ export default async function SalariesPage({
   ]);
 
   const memberBy = new Map(pos.members.map((mm) => [mm.id, mm]));
+
+  // slips live in a private bucket; each gets a short-lived link for this view
+  const slipPaths = (payments ?? []).map((p) => p.slip_path).filter(Boolean) as string[];
+  const slipUrl = new Map<string, string>();
+  if (slipPaths.length) {
+    const { data: signed } = await supabase.storage.from("slips").createSignedUrls(slipPaths, 3600);
+    for (const s of signed ?? []) if (s.path && s.signedUrl) slipUrl.set(s.path, s.signedUrl);
+  }
+  const slipFor = (path: string | null) => ({
+    url: path ? slipUrl.get(path) ?? null : null,
+    isPdf: Boolean(path?.toLowerCase().endsWith(".pdf")),
+  });
+  const slipPathById = new Map((payments ?? []).map((p) => [p.id, p.slip_path as string | null]));
   const paidByPlan = new Map<string, number>();
   const paidThisMonth = new Map<string, { id: string; amount: number }>();
   for (const p of payments ?? []) {
@@ -146,8 +160,11 @@ export default async function SalariesPage({
                   <Td right className="text-[var(--muted)]">{money(num(plan.monthly_amount))}</Td>
                   <Td right>
                     {paid ? (
-                      <span className="inline-flex items-center gap-2">
+                      <span className="inline-flex items-center gap-3">
                         <span className="text-sm font-medium text-emerald-700">Paid {money(paid.amount)}</span>
+                        <SlipCell paymentId={paid.id}
+                          {...slipFor(slipPathById.get(paid.id) ?? null)}
+                          label={`${person?.name ?? ""} · ${monthLabel(month)}`} />
                         <UndoPayment id={paid.id} />
                       </span>
                     ) : due && due.amount > 0 ? (
@@ -215,13 +232,18 @@ export default async function SalariesPage({
       </Card>
 
       <Card>
-        <CardHeader title="Payments" subtitle="Every salary paid, newest first" />
+        <CardHeader
+          title="Payments"
+          subtitle={`Every salary paid, newest first · ${
+            (payments ?? []).filter((p) => !p.slip_path).length
+          } without a slip`}
+        />
         {!payments?.length ? (
           <Empty message="Nothing paid yet." />
         ) : (
           <Table>
             <thead>
-              <tr><Th>Month</Th><Th>Person</Th><Th right>Paid on</Th><Th right>Amount</Th></tr>
+              <tr><Th>Month</Th><Th>Person</Th><Th right>Paid on</Th><Th right>Amount</Th><Th right>Slip</Th></tr>
             </thead>
             <tbody>
               {payments.map((p) => (
@@ -230,6 +252,10 @@ export default async function SalariesPage({
                   <Td className="font-medium">{(p.people as unknown as { name: string } | null)?.name ?? "—"}</Td>
                   <Td right className="text-xs text-[var(--muted)]">{date(p.paid_on)}</Td>
                   <Td right className="font-medium">{money(num(p.amount))}</Td>
+                  <Td right>
+                    <SlipCell paymentId={p.id} {...slipFor(p.slip_path)}
+                      label={`${(p.people as unknown as { name: string } | null)?.name ?? ""} · ${monthLabel(p.month)}`} />
+                  </Td>
                 </tr>
               ))}
             </tbody>
