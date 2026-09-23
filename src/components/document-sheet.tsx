@@ -204,14 +204,14 @@ export function DocumentSheet({
       )}
 
       <div className="mt-6 flex items-end justify-between gap-6">
-        {/* signature on the left, the stamp overlapping it up to the right, the name centred beneath */}
+        {/* signature centred over the name, the stamp overlapping it up to the right */}
         <div className="pl-[6mm]">
           {(stampUrl || signatureUrl) && (
             <div className="relative h-[36mm] w-[58mm]">
               {signatureUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={signatureUrl} alt="Signature"
-                  className="absolute bottom-0 left-[2mm] z-10 h-[20mm] w-[34mm] object-contain object-left-bottom" />
+                  className="absolute bottom-0 left-0 z-10 h-[20mm] w-[40mm] object-contain object-bottom" />
               )}
               {stampUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
