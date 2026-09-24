@@ -1,5 +1,5 @@
 import { cuttingLayouts, type BoardLayout, type Piece, type Span } from "@/lib/cutting";
-import { jointsOf, layoutKitchen, shelvesFor, SHAPE_WALL_IDS, WALL_NAME, type KitchenLayout, type Run } from "@/lib/kitchen";
+import { jointsOf, layoutKitchen, shelvesFor, SHAPE_WALL_IDS, wallName, type KitchenLayout, type Run } from "@/lib/kitchen";
 
 /**
  * Kitchen cabinet estimating, from the real walls. The kitchen is laid out as
@@ -10,7 +10,7 @@ import { jointsOf, layoutKitchen, shelvesFor, SHAPE_WALL_IDS, WALL_NAME, type Ki
  * for price; nothing is cut to them.
  */
 
-export type Shape = "none" | "I" | "L" | "U";
+export type Shape = "none" | "I" | "L" | "U" | "free";
 export type LengthUnit = "ft" | "in" | "cm";
 export type Group = "bottom" | "top";
 export type FrontKind = "door" | "drawer";
@@ -120,6 +120,20 @@ export interface UnitInput {
   doors?: 1 | 2;
   drawers?: number;
   label?: string;
+  /** a sink or hob set into the worktop over this cabinet */
+  top?: "sink" | "hob" | null;
+}
+
+/** A wall drawn on the free plan, in the chosen unit. */
+export interface PlanWall {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+  /** which side of the line the cabinets stand: 1 or -1 */
+  side: 1 | -1;
+  bottom: boolean;
+  top: boolean;
 }
 
 export interface WallOptions {
@@ -170,6 +184,8 @@ export interface EstimateInput {
   bottom: GroupInput;
   top: GroupInput;
   island?: IslandInput | null;
+  /** walls drawn freely, instead of an I, L or U shape */
+  plan?: { walls: PlanWall[] } | null;
   waste_pct: number;
   labour_per_ft: number;
   margin_pct: number;
@@ -293,7 +309,7 @@ export const ROLES: Record<Role, { label: string; how: string; on: (Group | Fron
   fitting: { label: "Custom fitting", how: "Per cabinet (or per door/drawer)", on: ["bottom", "top", "door", "drawer"], qty: "Per cabinet" },
 };
 
-export const SHAPE_WALLS: Record<Shape, number> = { none: 0, I: 1, L: 2, U: 3 };
+export const SHAPE_WALLS: Record<Shape, number> = { none: 0, I: 1, L: 2, U: 3, free: 0 };
 const RUNNER_LENGTHS = [10, 12, 14, 16, 18, 20, 22, 24];
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -329,7 +345,8 @@ export function normalizeInput(raw: Partial<EstimateInput> & Record<string, unkn
   const group = (g: unknown): GroupInput => {
     const x = (g ?? {}) as Partial<GroupInput> & { fronts?: { kind: string; count: number | null }[] };
     const base = blankGroup();
-    const walls = [0, 1, 2].map((i) => ({ ...blankWall(), ...(x.walls?.[i] ?? {}) }));
+    const count = Math.max(3, x.walls?.length ?? 0, (raw.plan as { walls?: unknown[] } | undefined)?.walls?.length ?? 0);
+    const walls = Array.from({ length: count }, (_, i) => ({ ...blankWall(), ...(x.walls?.[i] ?? {}) }));
     // the earlier version took drawers as a count: carry it over as drawer units on the first wall
     if (!x.walls && x.fronts) {
       const drawers = x.fronts.filter((f) => f.kind === "drawer").reduce((s, f) => s + (Number(f.count) || 0), 0);
@@ -350,6 +367,7 @@ export function normalizeInput(raw: Partial<EstimateInput> & Record<string, unkn
     bottom: group(raw.bottom),
     top: group(raw.top),
     island: raw.island ? (raw.island as IslandInput) : null,
+    plan: raw.plan ? (raw.plan as EstimateInput["plan"]) : null,
     waste_pct: Number(raw.waste_pct) || 0,
     labour_per_ft: Number(raw.labour_per_ft) || 0,
     margin_pct: Number(raw.margin_pct) || 0,
@@ -752,7 +770,7 @@ export function estimate(
     addGroupCost(g, inchesToFt(length) * (Number(input.labour_per_ft) || 0));
     groups.push({
       group: g,
-      shape: input[g].shape,
+      shape: input.plan ? "free" : input[g].shape,
       length_in: length,
       cabinets: cabs.length,
       blind: cabs.filter((c) => c.kind === "blind").length,
@@ -829,17 +847,22 @@ export function estimate(
   };
 }
 
-const SHAPE_NAME: Record<Shape, string> = { none: "", I: "straight (I)", L: "L-shaped", U: "U-shaped" };
+const SHAPE_NAME: Record<Shape, string> = { none: "", I: "straight (I)", L: "L-shaped", U: "U-shaped", free: "to plan" };
 
 /** The lines a quotation gets from an estimate: one per cabinet group, as in the company's own quotes. */
 export function quotationLines(rawInput: EstimateInput, result: Partial<EstimateResult>) {
   const input = normalizeInput(rawInput as EstimateInput & Record<string, unknown>);
   return (result.groups ?? []).map((g) => {
     const ids = SHAPE_WALL_IDS[g.shape] ?? [];
-    const walls = input[g.group].runs
-      .slice(0, ids.length)
-      .map((v, i) => `${ids[i] ? WALL_NAME[ids[i]] : `wall ${"ABC"[i]}`} ${Number(v)}${input.unit}`)
-      .join(", ");
+    const walls = input.plan
+      ? input.plan.walls
+          .map((w, i) => (w[g.group] ? `wall ${"ABCDEFGHJKLMNPQRSTUVWXYZ"[i]} ${Math.round(Math.hypot(w.x1 - w.x0, w.z1 - w.z0) * 100) / 100}${input.unit}` : ""))
+          .filter(Boolean)
+          .join(", ")
+      : input[g.group].runs
+          .slice(0, ids.length)
+          .map((v, i) => `${ids[i] ? wallName(ids[i]) : `wall ${"ABC"[i]}`} ${Number(v)}${input.unit}`)
+          .join(", ");
     const bits = [
       walls ? `Walls: ${walls}` : "",
       g.cabinets ? `${g.cabinets} cabinet${g.cabinets === 1 ? "" : "s"}${g.blind ? ` (${g.blind} corner)` : ""}` : "",

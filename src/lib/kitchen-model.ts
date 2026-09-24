@@ -306,7 +306,8 @@ export function worldBox(layout: KitchenLayout, s: Solid) {
 
 /** The walls the kitchen stands against, for the room around the 3D model. */
 export function roomWalls(layout: KitchenLayout) {
-  const len = (id: Run["wallId"]) => Math.max(0, ...layout.runs.filter((r) => r.wallId === id).map((r) => r.length));
+  // a drawn plan has its own walls
+  const len = (id: Run["wallId"]) => (layout.walls ? 0 : Math.max(0, ...layout.runs.filter((r) => r.wallId === id).map((r) => r.length)));
   const backRun = layout.runs.find((r) => r.group === "bottom" && r.wallId === "back") ?? layout.runs.find((r) => r.wallId === "back");
   return { back: len("back"), left: len("left"), right: len("right"), rightX: backRun?.length ?? 0 };
 }

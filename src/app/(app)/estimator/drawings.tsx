@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useId, useRef, useState, type ReactNode } from "react";
 import type { BoardLayout } from "@/lib/cutting";
 import type { CutRow, EstimateResult, Group } from "@/lib/estimator";
-import { planPoint, shelvesFor, WALL_NAME, type Run, type WallId } from "@/lib/kitchen";
+import { planPoint, shelvesFor, wallName, type Run, type WallId } from "@/lib/kitchen";
 import { hingeLeft } from "@/lib/kitchen-model";
 
 const Kitchen3D = dynamic(() => import("./kitchen-3d").then((m) => m.Kitchen3D), {
@@ -48,8 +48,14 @@ const TABS: [Tab, string][] = [
   ["cutlist", "Cut list"],
 ];
 const WALLS: WallId[] = ["left", "back", "right", "island"];
+/** the walls with cabinets on them, in order: a shape's, then a plan's, then the island */
+const wallsOf = (runs: Run[]) => {
+  const ids = [...new Set(runs.filter((r) => r.length > 0).map((r) => r.wallId))];
+  return ids.sort((a, b) => (WALLS.indexOf(a) + 1 || 50 + Number(a.slice(1))) - (WALLS.indexOf(b) + 1 || 50 + Number(b.slice(1))) || 0);
+};
 const FEATURE = { sink: "sink", hob: "hob", bin: "bin", spice: "spice" } as const;
-const WALL_TITLE: Record<WallId, string> = { back: "Back wall", left: "Left wall", right: "Right wall", island: "Island" };
+const TITLES: Record<string, string> = { back: "Back wall", left: "Left wall", right: "Right wall", island: "Island" };
+const title = (id: WallId, runs: Run[]) => TITLES[id] ?? `Wall ${runs.find((r) => r.wallId === id)?.letter ?? id.slice(1)}`;
 
 /**
  * Drawings of the job, all measured from the real layout: the kitchen from
@@ -65,7 +71,7 @@ export function Drawings({ result, name }: { result: EstimateResult; name: strin
   if (!result.groups.length) return null;
 
   const file = slug(name);
-  const walls = WALLS.filter((w) => result.layout.runs.some((r) => r.wallId === w && r.length > 0));
+  const walls = wallsOf(result.layout.runs);
   const plans = result.groups.map((g) => (
     <Figure key={g.group} title={`Plan — ${g.group === "bottom" ? "bottom" : "top"} cabinets`} file={`${file}-${g.group}-plan`}>
       <Plan result={result} group={g.group} />
@@ -73,7 +79,7 @@ export function Drawings({ result, name }: { result: EstimateResult; name: strin
   ));
   const elevations = (v: View, download = true) =>
     walls.map((w) => (
-      <Figure key={`${w}-${v}`} title={`${WALL_TITLE[w]} — ${v === "front" ? "front" : "inside, doors off"}`}
+      <Figure key={`${w}-${v}`} title={`${title(w, result.layout.runs)} — ${v === "front" ? "front" : "inside, doors off"}`}
         file={download ? `${file}-${w}-wall-${v}` : ""}>
         <Elevation result={result} wallId={w} view={v} />
       </Figure>
@@ -432,7 +438,7 @@ function Plan({ result, group }: { result: EstimateResult; group: Group }) {
                   <Dim key={i} a={at(r, pts[i], -o1)} b={at(r, p, -o1)} fs={fs} side={side} text={f1(p - pts[i])} />
                 ))}
                 <Dim a={at(r, 0, -o2)} b={at(r, r.length, -o2)} fs={fs} side={side}
-                  text={`Wall ${r.letter} · ${WALL_NAME[r.wallId]} · ${f1(r.length)}in (${ftIn(r.length)})`}
+                  text={`Wall ${r.letter}${r.wallId.startsWith("w") ? "" : ` · ${wallName(r.wallId)}`} · ${f1(r.length)}in (${ftIn(r.length)})`}
                   ext={[at(r, 0, -wallT), at(r, r.length, -wallT)]} />
               </g>
             );
@@ -486,6 +492,7 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
     height: Math.max(0, y1 - y0),
   });
   const returnOf = (r: Run, side: 0 | 1) => {
+    if (r.joins) return layout.runs.find((x) => x.group === r.group && x.wall === r.joins![side] && x.wallId !== "island");
     const other: WallId = r.wallId === "back" ? (side === 0 ? "left" : "right") : "back";
     return layout.runs.find((x) => x.group === r.group && x.wallId === other);
   };
@@ -750,7 +757,7 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
 
   return (
     <svg viewBox={`${-padL} ${-padT} ${W + padL + padR} ${HT + padT + padB}`} xmlns="http://www.w3.org/2000/svg" role="img"
-      aria-label={`${WALL_TITLE[wallId]} ${view}`} style={{ width: "100%", height: "auto", background: "#fff" }} fontFamily="Poppins, Arial, sans-serif">
+      aria-label={`${title(wallId, result.layout.runs)} ${view}`} style={{ width: "100%", height: "auto", background: "#fff" }} fontFamily="Poppins, Arial, sans-serif">
       <defs>
         <pattern id={`b${uid}`} width={fs * 0.9} height={fs * 0.9} patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
           <rect width={fs * 0.9} height={fs * 0.9} fill={FILL.blind} />
@@ -778,7 +785,7 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
       {chain.slice(1).map((x, i) => (
         <Dim key={i} a={[chain[i], HT + fs * 1.4]} b={[x, HT + fs * 1.4]} fs={fs} text={f1(x - chain[i])} />
       ))}
-      <Dim a={[0, HT + fs * 3.6]} b={[W, HT + fs * 3.6]} fs={fs} text={`${WALL_TITLE[wallId]} · ${f1(W)}in (${ftIn(W)})`} />
+      <Dim a={[0, HT + fs * 3.6]} b={[W, HT + fs * 3.6]} fs={fs} text={`${title(wallId, result.layout.runs)} · ${f1(W)}in (${ftIn(W)})`} />
       {upper.slice(1).map((x, i) => (
         <Dim key={`t${i}`} a={[upper[i], -fs * 1.4]} b={[x, -fs * 1.4]} fs={fs} side={-1} text={f1(x - upper[i])} />
       ))}

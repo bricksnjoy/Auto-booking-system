@@ -17,13 +17,14 @@ import {
   type Material,
   type OpeningInput,
   type Part,
+  type PlanWall,
   type Settings,
   type Shape,
   type UnitInput,
   type UnitKind,
   type WallOptions,
 } from "@/lib/estimator";
-import { planPoint, SHAPE_WALL_IDS, UNITS, WALL_NAME, type KitchenLayout, type Run } from "@/lib/kitchen";
+import { planPoint, SHAPE_WALL_IDS, UNITS, wallName, type KitchenLayout, type Run } from "@/lib/kitchen";
 import { money, date } from "@/lib/format";
 import { Drawings } from "./drawings";
 
@@ -44,6 +45,7 @@ export interface SavedEstimate {
 }
 
 const f1 = (n: number) => Number(n.toFixed(1)).toString();
+const LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 /* ─────────────── lengths in the chosen unit ─────────────── */
 
@@ -66,9 +68,21 @@ function inUnit(x: EstimateInput, to: LengthUnit): EstimateInput {
       ...w,
       openings: w.openings.map((o) => ({ ...o, width: c(o.width), from_left: o.from_left === null ? null : c(o.from_left) })),
       custom: w.custom ? w.custom.map((u) => ({ ...u, width: c(u.width) })) : w.custom,
+      beams: w.beams?.map((b) => ({ from: c(b.from), width: c(b.width), bottom: c(b.bottom), depth: c(b.depth) })),
     })),
   });
-  return { ...x, unit: to, bottom: group(x.bottom), top: group(x.top) };
+  const island = x.island
+    ? {
+        ...x.island,
+        length: c(x.island.length),
+        depth: c(x.island.depth),
+        x: c(x.island.x),
+        z: c(x.island.z),
+        custom: x.island.custom ? x.island.custom.map((u) => ({ ...u, width: c(u.width) })) : x.island.custom,
+      }
+    : x.island;
+  const plan = x.plan ? { walls: x.plan.walls.map((w) => ({ ...w, x0: c(w.x0), z0: c(w.z0), x1: c(w.x1), z1: c(w.z1) })) } : x.plan;
+  return { ...x, unit: to, bottom: group(x.bottom), top: group(x.top), island, plan };
 }
 
 /** Common gaps left in a run: a fridge stands full height, a dishwasher goes under the worktop. */
@@ -145,13 +159,28 @@ export function Estimator({
           </div>
         </Panel>
 
+        <Panel title="Layout">
+          <div className="flex flex-wrap items-center gap-3">
+            <Choice text="Walls from" value={inp.plan ? "plan" : "shape"}
+              options={[["shape", "an I, L or U shape"], ["plan", "a plan I draw"]] as ["shape" | "plan", string][]}
+              onChange={(v) => setInp((x) => (v === "plan" ? (x.plan ? x : planFromShapes(x)) : { ...x, plan: null }))} />
+          </div>
+          {inp.plan && (
+            <PlanEditor value={inp.plan.walls} unit={inp.unit} layout={result.layout}
+              onChange={(walls, removed) => setInp((x) => {
+                const drop = (gi: GroupInput) => (removed === undefined ? gi : { ...gi, walls: gi.walls.filter((_, k) => k !== removed) });
+                return { ...x, plan: { walls }, bottom: drop(x.bottom), top: drop(x.top) };
+              })} />
+          )}
+        </Panel>
+
         {(["bottom", "top"] as Group[]).map((g) => (
           <GroupEditor key={g} group={g} value={inp[g]} unit={inp.unit} settings={settings}
-            runs={result.layout.runs.filter((r) => r.group === g)}
+            runs={result.layout.runs.filter((r) => r.group === g)} plan={inp.plan?.walls ?? null}
             onChange={(next) => setGroup(g, next)} />
         ))}
 
-        {inp.bottom.shape !== "none" && (
+        {(inp.plan ? inp.plan.walls.some((w) => w.bottom) : inp.bottom.shape !== "none") && (
           <IslandPanel value={inp.island ?? null} unit={inp.unit} layout={result.layout} settings={settings}
             onChange={(island) => setInp((x) => ({ ...x, island }))} />
         )}
@@ -321,6 +350,7 @@ function GroupEditor({
   settings,
   runs,
   onChange,
+  plan,
 }: {
   group: Group;
   value: GroupInput;
@@ -328,16 +358,26 @@ function GroupEditor({
   settings: Settings;
   runs: Run[];
   onChange: (next: GroupInput) => void;
+  /** walls drawn on the free plan, instead of a shape */
+  plan?: PlanWall[] | null;
 }) {
-  const ids = SHAPE_WALL_IDS[value.shape];
+  // the walls this group stands on: from its shape, or those ticked on the plan
+  const list = plan
+    ? plan.map((w, i) => ({ i, name: `wall ${LETTERS[i]}`, letter: LETTERS[i], w })).filter((x) => x.w[group])
+    : SHAPE_WALL_IDS[value.shape].map((id, i) => ({ i, name: wallName(id), letter: "ABC"[i], w: null }));
   const patch = (p: Partial<GroupInput>) => onChange({ ...value, ...p });
-  const setWall = (i: number, p: Partial<WallOptions>) =>
-    patch({ walls: [0, 1, 2].map((k) => (k === i ? { ...(value.walls[k] ?? blankWall()), ...p } : (value.walls[k] ?? blankWall()))) });
+  const setWall = (i: number, p: Partial<WallOptions>) => {
+    const walls = [...value.walls];
+    while (walls.length <= i) walls.push(blankWall());
+    walls[i] = { ...(walls[i] ?? blankWall()), ...p };
+    patch({ walls });
+  };
   const bottom = group === "bottom";
+  if (plan && !list.length) return null;
 
   return (
     <Panel title={bottom ? "Bottom cabinets" : "Top cabinets"}>
-      <div className="grid grid-cols-4 gap-2">
+      {!plan && <div className="grid grid-cols-4 gap-2">
         {(["none", "I", "L", "U"] as Shape[]).map((s) => (
           <button key={s} type="button" onClick={() => patch({ shape: s })} aria-pressed={value.shape === s}
             className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-3 text-xs font-medium transition-colors ${
@@ -347,27 +387,31 @@ function GroupEditor({
             {s === "none" ? "None" : `${s} shape`}
           </button>
         ))}
-      </div>
+      </div>}
 
-      {ids.length > 0 && (
+      {list.length > 0 && (
         <>
           <div className="space-y-3">
-            {ids.map((wallId, i) => {
+            {list.map(({ i, name, letter }) => {
               const w = value.walls[i] ?? blankWall();
-              const run = runs.find((r) => r.wall === i);
+              const run = runs.find((r) => r.wall === i && r.wallId !== "island");
               return (
                 <div key={i} className="rounded-lg border border-[var(--border)] p-3">
                   <div className="flex flex-wrap items-end gap-3">
-                    <div className="w-40">
-                      <label htmlFor={`${group}-w${i}`} className={tiny}>Wall {"ABC"[i]} · {WALL_NAME[wallId]} ({unit})</label>
-                      <input id={`${group}-w${i}`} type="number" step="any" min="0" className={small}
-                        value={value.runs[i] || ""} placeholder="0"
-                        onChange={(e) => {
-                          const runsIn = [...value.runs];
-                          runsIn[i] = e.target.value === "" ? 0 : Number(e.target.value);
-                          patch({ runs: runsIn });
-                        }} />
-                    </div>
+                    {plan ? (
+                      <p className="pb-1.5 text-sm font-medium">Wall {letter} · {f1(fromInches(run?.length ?? 0, unit))}{unit}</p>
+                    ) : (
+                      <div className="w-40">
+                        <label htmlFor={`${group}-w${i}`} className={tiny}>Wall {letter} · {name} ({unit})</label>
+                        <input id={`${group}-w${i}`} type="number" step="any" min="0" className={small}
+                          value={value.runs[i] || ""} placeholder="0"
+                          onChange={(e) => {
+                            const runsIn = [...value.runs];
+                            runsIn[i] = e.target.value === "" ? 0 : Number(e.target.value);
+                            patch({ runs: runsIn });
+                          }} />
+                      </div>
+                    )}
                     {bottom && !w.custom && (
                       <>
                         <div className="w-28">
@@ -421,7 +465,7 @@ function GroupEditor({
             <Choice text="Doors per cabinet" value={value.doors}
               options={[["auto", `Auto (1 up to ${f1(settings.single_door_max_in)}in)`], [1, "1"], [2, "2"]]}
               onChange={(v) => patch({ doors: v })} />
-            {bottom && value.walls.some((w, i) => i < ids.length && w.drawer_units > 0) && (
+            {bottom && list.some(({ i }) => (value.walls[i]?.drawer_units ?? 0) > 0) && (
               <div className="flex items-center gap-2 text-sm">
                 <label htmlFor={`${group}-dpu`} className="whitespace-nowrap font-medium">Drawers in a unit</label>
                 <input id={`${group}-dpu`} type="number" min="1" max="6" step="1" value={value.drawers_per_unit}
@@ -433,7 +477,7 @@ function GroupEditor({
           <p className="text-xs text-[var(--muted)]">
             Each wall is split into equal cabinets near {f1(bottom ? settings.bottom_module_in : settings.top_module_in)}in wide
             (never under {f1(settings.cabinet_min_in)} or over {f1(settings.cabinet_max_in)}in), sharing one partition between neighbours.
-            {value.shape === "L" || value.shape === "U" ? " Where walls meet, one run carries on into the corner as a blind cabinet with a shelf and no door." : ""}
+            {plan || value.shape === "L" || value.shape === "U" ? " Where walls meet, one run carries on into the corner as a blind cabinet with a shelf and no door." : ""}
             {" "}Measure gaps from the wall&apos;s left end as you face it — leave “from left” empty to put it at the right end.
           </p>
         </>
@@ -560,6 +604,207 @@ function Openings({ group, unit, value, onChange }: {
           + Other
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────── the free plan ─────────────── */
+
+/** The walls of the chosen shape, drawn as a plan to carry on from. */
+function planFromShapes(x: EstimateInput): EstimateInput {
+  const g = x.bottom.shape !== "none" ? x.bottom : x.top;
+  const [a = 0, b = 0, c = 0] = g.runs;
+  const shape = g.shape;
+  const has = (grp: Group, id: string) => (SHAPE_WALL_IDS[x[grp].shape] as string[]).includes(id);
+  const wall = (id: string, x0: number, z0: number, x1: number, z1: number, side: 1 | -1): PlanWall => ({
+    x0, z0, x1, z1, side, bottom: has("bottom", id), top: has("top", id),
+  });
+  let walls: PlanWall[] = [];
+  let order: number[] = [];
+  if (shape === "I") {
+    walls = [wall("back", 0, 0, a, 0, 1)];
+    order = [0];
+  } else if (shape === "L") {
+    walls = [wall("back", 0, 0, a, 0, 1), wall("left", 0, 0, 0, b, -1)];
+    order = [0, 1];
+  } else if (shape === "U") {
+    // the back wall first, so it runs through both corners as before
+    walls = [wall("back", 0, 0, b, 0, 1), wall("left", 0, 0, 0, a, -1), wall("right", b, 0, b, c, 1)];
+    order = [1, 0, 2];
+  }
+  const reorder = (gi: GroupInput): GroupInput => ({ ...gi, walls: order.length ? order.map((k) => gi.walls[k] ?? blankWall()) : gi.walls });
+  return { ...x, plan: { walls }, bottom: reorder(x.bottom), top: reorder(x.top) };
+}
+
+/**
+ * Draw the room's walls from above: drag to draw a wall (it stays square to
+ * the grid and snaps to the ends of others), click one to change it.
+ */
+function PlanEditor({ value, unit, layout, onChange }: {
+  value: PlanWall[];
+  unit: LengthUnit;
+  layout: KitchenLayout;
+  onChange: (next: PlanWall[], removed?: number) => void;
+}) {
+  const svg = useRef<SVGSVGElement>(null);
+  const [sel, setSel] = useState<number | null>(value.length ? 0 : null);
+  const [draft, setDraft] = useState<{ x0: number; z0: number; x1: number; z1: number } | null>(null);
+  const walls = value.map((w) => ({ x0: toInches(w.x0, unit), z0: toInches(w.z0, unit), x1: toInches(w.x1, unit), z1: toInches(w.z1, unit) }));
+  let x0 = 0;
+  let z0 = 0;
+  let x1 = 144;
+  let z1 = 120;
+  for (const w of [...walls, ...(draft ? [draft] : [])]) {
+    x0 = Math.min(x0, w.x0, w.x1);
+    x1 = Math.max(x1, w.x0, w.x1);
+    z0 = Math.min(z0, w.z0, w.z1);
+    z1 = Math.max(z1, w.z0, w.z1);
+  }
+  const pad = 36;
+  const vb = { x: x0 - pad, y: z0 - pad, w: x1 - x0 + pad * 2, h: z1 - z0 + pad * 2 };
+  const fs = Math.max(vb.w, vb.h) / 50;
+  const ends = walls.flatMap((w) => [[w.x0, w.z0], [w.x1, w.z1]]);
+  const snap = (x: number, z: number) => {
+    for (const [ex, ez] of ends) if (Math.hypot(ex - x, ez - z) < 8) return [ex, ez];
+    return [Math.round(x / 6) * 6, Math.round(z / 6) * 6];
+  };
+  const at = (ev: React.PointerEvent) => {
+    const m = svg.current?.getScreenCTM();
+    if (!m) return [0, 0];
+    const p = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m.inverse());
+    return [p.x, p.y];
+  };
+  const u = (inches: number) => fromInches(inches, unit);
+  const cur = sel !== null ? value[sel] : undefined;
+  const setWall = (i: number, p: Partial<PlanWall>) => onChange(value.map((w, k) => (k === i ? { ...w, ...p } : w)));
+  const len = (w: { x0: number; z0: number; x1: number; z1: number }) => Math.hypot(w.x1 - w.x0, w.z1 - w.z0);
+
+  return (
+    <div className="space-y-3">
+      <svg ref={svg} viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} className="h-96 w-full cursor-crosshair touch-none select-none rounded-md border border-[var(--border)] bg-white"
+        fontFamily="Poppins, Arial, sans-serif"
+        onPointerDown={(ev) => {
+          if ((ev.target as Element).closest("[data-wall]")) return;
+          (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
+          const [x, z] = at(ev);
+          const [sx, sz] = snap(x, z);
+          setDraft({ x0: sx, z0: sz, x1: sx, z1: sz });
+        }}
+        onPointerMove={(ev) => {
+          if (!draft) return;
+          const [x, z] = at(ev);
+          // square to the grid: along whichever way the pointer has gone further
+          const along = Math.abs(x - draft.x0) >= Math.abs(z - draft.z0);
+          const [sx, sz] = snap(along ? x : draft.x0, along ? draft.z0 : z);
+          setDraft({ ...draft, x1: along ? sx : draft.x0, z1: along ? draft.z0 : sz });
+        }}
+        onPointerUp={() => {
+          if (!draft) return;
+          if (len(draft) >= 12) {
+            // cabinets on the side facing the middle of what is drawn so far
+            const mx = walls.length ? walls.reduce((a, w) => a + w.x0 + w.x1, 0) / (walls.length * 2) : draft.x0 + 1;
+            const mz = walls.length ? walls.reduce((a, w) => a + w.z0 + w.z1, 0) / (walls.length * 2) : draft.z0 + 1000;
+            const dx = draft.x1 - draft.x0;
+            const dz = draft.z1 - draft.z0;
+            const nx = -dz;
+            const nz = dx;
+            const toMid = (mx - (draft.x0 + draft.x1) / 2) * nx + (mz - (draft.z0 + draft.z1) / 2) * nz;
+            const side: 1 | -1 = walls.length ? (toMid >= 0 ? 1 : -1) : dz !== 0 ? (dz > 0 ? -1 : 1) : dx > 0 ? 1 : -1;
+            onChange([...value, { x0: u(draft.x0), z0: u(draft.z0), x1: u(draft.x1), z1: u(draft.z1), side, bottom: true, top: false }]);
+            setSel(value.length);
+          }
+          setDraft(null);
+        }}>
+        {/* a 1ft grid */}
+        {Array.from({ length: Math.ceil(vb.w / 12) + 1 }, (_, k) => {
+          const gx = Math.floor(vb.x / 12) * 12 + k * 12;
+          return <line key={`gx${k}`} x1={gx} y1={vb.y} x2={gx} y2={vb.y + vb.h} stroke="#eef0f3" strokeWidth={fs / 14} />;
+        })}
+        {Array.from({ length: Math.ceil(vb.h / 12) + 1 }, (_, k) => {
+          const gz = Math.floor(vb.y / 12) * 12 + k * 12;
+          return <line key={`gz${k}`} x1={vb.x} y1={gz} x2={vb.x + vb.w} y2={gz} stroke="#eef0f3" strokeWidth={fs / 14} />;
+        })}
+        {/* the cabinets as laid out */}
+        {layout.runs.filter((r) => r.length > 0).map((r) => {
+          const a = planPoint(layout, r, 0, 0);
+          const b = planPoint(layout, r, r.length, r.depth);
+          return (
+            <rect key={`r${r.index}`} x={Math.min(a.x, b.x)} y={Math.min(a.z, b.z)} width={Math.abs(b.x - a.x)} height={Math.abs(b.z - a.z)}
+              fill={r.group === "bottom" ? "#dfe6ef" : "none"} stroke={r.group === "bottom" ? "#0b1f3a" : "#6b7686"} strokeWidth={fs / 12}
+              strokeDasharray={r.group === "top" ? `${fs / 2} ${fs / 3}` : undefined} pointerEvents="none" />
+          );
+        })}
+        {walls.map((w, i) => {
+          const mx = (w.x0 + w.x1) / 2;
+          const mz = (w.z0 + w.z1) / 2;
+          const horizontal = Math.abs(w.z1 - w.z0) < Math.abs(w.x1 - w.x0);
+          const side = value[i].side;
+          const nx = (-(w.z1 - w.z0) / (len(w) || 1)) * side;
+          const nz = ((w.x1 - w.x0) / (len(w) || 1)) * side;
+          return (
+            <g key={i} data-wall className="cursor-pointer" onPointerDown={(ev) => { ev.stopPropagation(); setSel(i); }}>
+              <line x1={w.x0} y1={w.z0} x2={w.x1} y2={w.z1} stroke="transparent" strokeWidth={fs * 1.6} />
+              <line x1={w.x0} y1={w.z0} x2={w.x1} y2={w.z1} stroke={sel === i ? "#2563eb" : "#1b2330"} strokeWidth={fs / 2.4} strokeLinecap="square" />
+              {/* which side the cabinets go */}
+              <line x1={mx} y1={mz} x2={mx + nx * fs * 1.6} y2={mz + nz * fs * 1.6} stroke={sel === i ? "#2563eb" : "#6b7686"} strokeWidth={fs / 8} markerEnd="" />
+              <text x={mx - nx * fs * 1.4} y={mz - nz * fs * 1.4} fontSize={fs * 0.85} textAnchor="middle" dominantBaseline="middle" fill="#1b2330"
+                transform={horizontal ? undefined : `rotate(-90 ${mx - nx * fs * 1.4} ${mz - nz * fs * 1.4})`}>
+                {LETTERS[i]} · {f1(u(len(w)))}{unit}
+              </text>
+            </g>
+          );
+        })}
+        {draft && (
+          <g pointerEvents="none">
+            <line x1={draft.x0} y1={draft.z0} x2={draft.x1} y2={draft.z1} stroke="#2563eb" strokeWidth={fs / 2.4} strokeDasharray={`${fs} ${fs / 2}`} />
+            <text x={(draft.x0 + draft.x1) / 2} y={(draft.z0 + draft.z1) / 2 - fs} fontSize={fs} textAnchor="middle" fill="#2563eb">
+              {f1(u(len(draft)))}{unit}
+            </text>
+          </g>
+        )}
+      </svg>
+
+      {cur && sel !== null ? (
+        <div className="flex flex-wrap items-end gap-3 rounded-lg bg-[var(--hover)] p-3">
+          <p className="pb-1.5 text-sm font-medium">Wall {LETTERS[sel]}</p>
+          <div className="w-28">
+            <label className={tiny} htmlFor="pw-len">Length ({unit})</label>
+            <input id="pw-len" type="number" step="any" min="0" className={small}
+              value={Math.round(len(value[sel]) * 100) / 100 || ""}
+              onChange={(e) => {
+                // keep its start, and its direction
+                const w = value[sel];
+                const l = len(w) || 1;
+                const n = Number(e.target.value) || 0;
+                setWall(sel, { x1: w.x0 + ((w.x1 - w.x0) / l) * n, z1: w.z0 + ((w.z1 - w.z0) / l) * n });
+              }} />
+          </div>
+          <label className="flex items-center gap-2 pb-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={cur.bottom} onChange={(e) => setWall(sel, { bottom: e.target.checked })} />
+            Bottom cabinets
+          </label>
+          <label className="flex items-center gap-2 pb-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-[var(--brand)]" checked={cur.top} onChange={(e) => setWall(sel, { top: e.target.checked })} />
+            Top cabinets
+          </label>
+          <button type="button" className="pb-2 text-xs font-medium text-[var(--brand)] hover:underline"
+            onClick={() => setWall(sel, { side: cur.side === 1 ? -1 : 1 })}>
+            Cabinets on the other side
+          </button>
+          <button type="button" className="ml-auto pb-2 text-xs text-red-700 hover:underline"
+            onClick={() => {
+              onChange(value.filter((_, k) => k !== sel), sel);
+              setSel(null);
+            }}>
+            Delete wall
+          </button>
+        </div>
+      ) : null}
+      <p className="text-xs text-[var(--muted)]">
+        Drag on the grid to draw a wall — it stays square and snaps to the ends of the others (each square is 1ft). Click a wall to set its length, which
+        cabinets go on it, and which side they stand. Where two walls with cabinets meet inside a corner, the one drawn first carries on into the corner
+        as a blind cabinet.
+      </p>
     </div>
   );
 }
@@ -719,14 +964,16 @@ function TopView({ layout, value, unit, onMove }: {
 
   let x0 = Math.min(0, cx - hx);
   let x1 = Math.max(cx + hx, 48);
+  let z0 = Math.min(0, cz - hz);
   let z1 = Math.max(cz + hz, 48);
-  for (const b of [...blocks, ...tops]) {
+  for (const b of [...blocks, ...tops, ...(layout.walls ?? []).map((w) => ({ x0: Math.min(w.x0, w.x1), x1: Math.max(w.x0, w.x1), z0: Math.min(w.z0, w.z1), z1: Math.max(w.z0, w.z1) }))]) {
     x0 = Math.min(x0, b.x0);
     x1 = Math.max(x1, b.x1);
+    z0 = Math.min(z0, b.z0);
     z1 = Math.max(z1, b.z1);
   }
   const pad = 30;
-  const vb = { x: x0 - pad, y: -pad, w: x1 - x0 + pad * 2, h: z1 + pad * 2 };
+  const vb = { x: x0 - pad, y: z0 - pad, w: x1 - x0 + pad * 2, h: z1 - z0 + pad * 2 };
   const fs = Math.max(vb.w, vb.h) / 45;
 
   // what the island is snapped to, and how far it is from each run of cabinets
@@ -772,13 +1019,15 @@ function TopView({ layout, value, unit, onMove }: {
         }}
         fontFamily="Poppins, Arial, sans-serif">
         {/* walls */}
-        {(["back", "left", "right"] as const).map((w) => {
-          const r = others.find((x) => x.wallId === w);
-          if (!r) return null;
-          const a = planPoint(layout, r, 0, 0);
-          const b = planPoint(layout, r, r.length, 0);
-          return <line key={w} x1={a.x} y1={a.z} x2={b.x} y2={b.z} stroke="#1b2330" strokeWidth={fs / 2.2} strokeLinecap="square" />;
-        })}
+        {layout.walls
+          ? layout.walls.map((w, i) => <line key={i} x1={w.x0} y1={w.z0} x2={w.x1} y2={w.z1} stroke="#1b2330" strokeWidth={fs / 2.2} strokeLinecap="square" />)
+          : (["back", "left", "right"] as const).map((w) => {
+              const r = others.find((x) => x.wallId === w);
+              if (!r) return null;
+              const a = planPoint(layout, r, 0, 0);
+              const b = planPoint(layout, r, r.length, 0);
+              return <line key={w} x1={a.x} y1={a.z} x2={b.x} y2={b.z} stroke="#1b2330" strokeWidth={fs / 2.2} strokeLinecap="square" />;
+            })}
         {blocks.map((b, i) => (
           <rect key={`b${i}`} x={b.x0} y={b.z0} width={b.x1 - b.x0} height={b.z1 - b.z0} fill="#dfe6ef" stroke="#0b1f3a" strokeWidth={fs / 10} />
         ))}
@@ -841,13 +1090,20 @@ function unitsFromRun(run: Run, unit: LengthUnit): UnitInput[] {
   for (const sg of run.segments) {
     for (const c of sg.cabinets) {
       if (c.kind === "blind" || c.e1 <= lo + 0.01 || c.e0 >= hi - 0.01) continue;
-      const kind: UnitKind = c.feature ?? (c.kind === "drawers" ? "drawers" : "doors");
-      items.push({ at: c.e0, kind, width: fromInches(c.e1 - c.e0, unit), ...(c.kind === "drawers" ? { drawers: c.drawers } : { doors: c.doors === 1 ? 1 : 2 }) });
+      const onTop = c.feature === "sink" || c.feature === "hob" ? c.feature : null;
+      const kind: UnitKind = c.feature === "bin" || c.feature === "spice" ? c.feature : c.kind === "drawers" ? "drawers" : "doors";
+      items.push({
+        at: c.e0,
+        kind,
+        width: fromInches(c.e1 - c.e0, unit),
+        ...(c.kind === "drawers" ? { drawers: c.drawers } : { doors: c.doors === 1 ? 1 : 2 }),
+        ...(onTop ? { top: onTop } : {}),
+      });
     }
     if (sg.filler) items.push({ at: sg.e0, kind: "gap", width: fromInches(sg.e1 - sg.e0, unit), label: "Panel" });
   }
   for (const o of run.openings) items.push({ at: o.e0, kind: o.kind, width: fromInches(o.e1 - o.e0, unit), label: o.label });
-  return items.sort((a, b) => a.at - b.at).map((u) => ({ kind: u.kind, width: u.width, doors: u.doors, drawers: u.drawers, label: u.label }));
+  return items.sort((a, b) => a.at - b.at).map((u) => ({ kind: u.kind, width: u.width, doors: u.doors, drawers: u.drawers, label: u.label, top: u.top }));
 }
 
 const KIND_TONE: Partial<Record<UnitKind, string>> = {
@@ -891,7 +1147,12 @@ function WallDesigner({ group, unit, run, units, onChange, onAuto }: {
     const w = room >= 6 && room < want ? room : want;
     const at = sel === null ? units.length : sel + 1;
     const next = [...units];
-    next.splice(at, 0, { kind, width: fromInches(w, unit), ...(kind === "drawers" ? { drawers: 3 } : {}) });
+    // a sink or hob sits on a cabinet: add the cabinet with it on top
+    const unitIn: UnitInput =
+      kind === "sink" || kind === "hob"
+        ? { kind: kind === "hob" ? "drawers" : "doors", width: fromInches(w, unit), top: kind, ...(kind === "hob" ? { drawers: 3 } : {}) }
+        : { kind, width: fromInches(w, unit), ...(kind === "drawers" ? { drawers: 3 } : {}) };
+    next.splice(at, 0, unitIn);
     onChange(next);
     setSel(at);
   }
@@ -983,6 +1244,11 @@ function WallDesigner({ group, unit, run, units, onChange, onAuto }: {
                 sel === i ? "z-10 border-[var(--brand)]" : "border-white"
               } ${cabinet ? KIND_TONE[u.kind] ?? "" : "border-dashed bg-white text-[var(--muted)]"} ${over ? "ring-2 ring-red-400" : ""}`}
               style={{ left: pct(e0), width: pct(e1 - e0) }}>
+              {(u.top || u.kind === "sink" || u.kind === "hob") && (
+                <div className={`h-3 shrink-0 text-center text-[8px] leading-3 ${(u.top ?? u.kind) === "hob" ? "bg-slate-800 text-white" : "bg-sky-300 text-sky-950"}`}>
+                  {(u.top ?? u.kind) === "hob" ? "hob" : "sink"}
+                </div>
+              )}
               <div className="flex flex-1">
                 {cabinet && (u.kind === "drawers" || (u.kind === "hob" && (u.drawers ?? 0) > 0)) ? (
                   <div className="flex flex-1 flex-col">
@@ -997,7 +1263,7 @@ function WallDesigner({ group, unit, run, units, onChange, onAuto }: {
                 ) : null}
               </div>
               <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 px-0.5 text-center">
-                <span className="block truncate font-semibold">{u.label?.trim() || info.label}</span>
+                <span className="block truncate font-semibold">{u.label?.trim() || (u.top ? `${info.label} + ${u.top}` : info.label)}</span>
                 <span className="block truncate opacity-80">{f1(fromInches(e1 - e0, unit))}{unit}</span>
               </div>
               <span onPointerDown={(ev) => startDrag(i, ev)} aria-label="Drag to resize"
@@ -1010,7 +1276,9 @@ function WallDesigner({ group, unit, run, units, onChange, onAuto }: {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         <span className="text-[var(--muted)]">Add</span>
         {kinds.map((k) => (
-          <button key={k} type="button" onClick={() => add(k)} className="font-medium text-[var(--brand)] hover:underline">+ {UNITS[k].label}</button>
+          <button key={k} type="button" onClick={() => add(k)} className="font-medium text-[var(--brand)] hover:underline">
+            + {k === "sink" ? "Sink cabinet" : k === "hob" ? "Hob on drawers" : UNITS[k].label}
+          </button>
         ))}
       </div>
 
@@ -1020,9 +1288,14 @@ function WallDesigner({ group, unit, run, units, onChange, onAuto }: {
             <label className={tiny} htmlFor="u-kind">Unit {sel + 1}</label>
             <select id="u-kind" className={small} value={current.kind}
               onChange={(e) => set(sel, { kind: e.target.value as UnitKind, ...(e.target.value === "drawers" && !current.drawers ? { drawers: 3 } : {}) })}>
-              {kinds.map((k) => <option key={k} value={k}>{UNITS[k].label}</option>)}
+              {kinds.filter((k) => (k !== "sink" && k !== "hob") || current.kind === k).map((k) => <option key={k} value={k}>{UNITS[k].label}</option>)}
             </select>
           </div>
+          {(current.kind === "doors" || current.kind === "drawers") && group === "bottom" && (
+            <Choice text="On top" value={current.top ?? "none"}
+              options={[["none", "Nothing"], ["sink", "Sink"], ["hob", "Hob"]] as ["none" | "sink" | "hob", string][]}
+              onChange={(v) => set(sel, { top: v === "none" ? null : v })} />
+          )}
           <div className="w-28">
             <label className={tiny} htmlFor="u-w">Width ({unit})</label>
             <input id="u-w" type="number" step="any" min="0" className={small} value={current.width || ""}
@@ -1069,8 +1342,8 @@ function WallDesigner({ group, unit, run, units, onChange, onAuto }: {
         </div>
       )}
       <p className="text-xs text-[var(--muted)]">
-        Click a unit to change it; drag its right edge to make it wider or narrower — the next unit gives or takes the difference. Sinks get no shelf and a cut-out in
-        the worktop; a washing machine or dishwasher keeps the worktop over it.
+        Click a unit to change it; drag its right edge to make it wider or narrower — the next unit gives or takes the difference. A sink or hob goes on top
+        of a cabinet: the cabinet under a sink gets no shelf, and the worktop is cut out. A washing machine or dishwasher keeps the worktop over it.
       </p>
     </div>
   );
@@ -1112,6 +1385,7 @@ function ShapeIcon({ shape }: { shape: Shape }) {
     I: "M6 10h28",
     L: "M6 10h28M6 10v22",
     U: "M6 32V10h28v22",
+    free: "M6 32V10h14v10h14",
   }[shape];
   return (
     <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">

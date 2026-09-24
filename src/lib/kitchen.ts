@@ -11,7 +11,8 @@
 
 import type { EstimateInput, Group, Settings, Shape, UnitKind } from "@/lib/estimator";
 
-export type WallId = "back" | "left" | "right" | "island";
+/** a wall of an I, L or U, the island, or wall n of a free plan */
+export type WallId = "back" | "left" | "right" | "island" | `w${number}`;
 /** what a run meets at one end: nothing, a corner it passes through, or a corner it stops short of */
 export type End = "free" | "through" | "short";
 
@@ -21,9 +22,13 @@ export const SHAPE_WALL_IDS: Record<Shape, WallId[]> = {
   I: ["back"],
   L: ["back", "left"],
   U: ["left", "back", "right"],
+  free: [],
 };
 
-export const WALL_NAME: Record<WallId, string> = { back: "back wall", left: "left wall", right: "right wall", island: "island" };
+export const WALL_NAME: Record<string, string> = { back: "back wall", left: "left wall", right: "right wall", island: "island" };
+
+export const wallName = (id: WallId) => WALL_NAME[id] ?? `wall ${id.slice(1)}`;
+const LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 // An L runs the back wall through the corner; a U runs the back wall through both.
 const ENDS: Record<Shape, [End, End][]> = {
@@ -31,6 +36,7 @@ const ENDS: Record<Shape, [End, End][]> = {
   I: [["free", "free"]],
   L: [["through", "free"], ["free", "short"]],
   U: [["free", "short"], ["through", "through"], ["short", "free"]],
+  free: [],
 };
 
 export interface Cabinet {
@@ -119,6 +125,8 @@ export interface Run {
   /** where the worktop reaches, out from the back (an island's overhangs) */
   slab?: [number, number];
   beams?: Beam[];
+  /** on a free plan, the wall met at each end's corner */
+  joins?: [number | null, number | null];
 }
 
 export interface Heights {
@@ -136,6 +144,8 @@ export interface Heights {
 
 export interface KitchenLayout {
   runs: Run[];
+  /** the walls of a free plan, in inches */
+  walls?: { x0: number; z0: number; x1: number; z1: number }[];
   heights: Heights;
   /** partition thickness */
   t: Record<Group, number>;
@@ -248,6 +258,74 @@ function divide(
   return { slots: [...left, ...middle, ...right], filler: false, note };
 }
 
+interface WallSpec {
+  wall: number;
+  wallId: WallId;
+  letter: string;
+  L: number;
+  ends: [End, End];
+  frame?: Frame;
+  joins?: [number | null, number | null];
+}
+
+/**
+ * The walls of a free plan that carry this group's cabinets, each with the
+ * way it faces and what it meets at each end. Where two such walls meet in an
+ * inside corner, the one drawn first runs through it (with a blind cabinet)
+ * and the other stops short.
+ */
+function planSpecs(walls: import("@/lib/estimator").PlanWall[], g: Group, unit: EstimateInput["unit"]): WallSpec[] {
+  const pts = walls.map((w) => ({ x0: toIn(w.x0, unit), z0: toIn(w.z0, unit), x1: toIn(w.x1, unit), z1: toIn(w.z1, unit), w }));
+  const geo = pts.map((p) => {
+    const L = Math.hypot(p.x1 - p.x0, p.z1 - p.z0);
+    const ux = L ? (p.x1 - p.x0) / L : 1;
+    const uz = L ? (p.z1 - p.z0) / L : 0;
+    const side = p.w.side === -1 ? -1 : 1;
+    const nx = -uz * side;
+    const nz = ux * side;
+    // e runs left to right as seen facing the wall
+    const rx = nz;
+    const rz = -nx;
+    const forward = rx * ux + rz * uz > 0;
+    const ox = forward ? p.x0 : p.x1;
+    const oz = forward ? p.z0 : p.z1;
+    return { L, ox, oz, rx, rz, nx, nz };
+  });
+  const near = (ax: number, az: number, bx: number, bz: number) => Math.hypot(ax - bx, az - bz) < 1.5;
+  const out: WallSpec[] = [];
+  pts.forEach((p, i) => {
+    if (!p.w[g] || geo[i].L < 1) return;
+    const G = geo[i];
+    const endAt = (x: number, z: number): [End, number | null] => {
+      for (let j = 0; j < pts.length; j++) {
+        if (j === i || !pts[j].w[g]) continue;
+        const q = pts[j];
+        const other = near(q.x0, q.z0, x, z) ? [q.x1, q.z1] : near(q.x1, q.z1, x, z) ? [q.x0, q.z0] : null;
+        if (!other) continue;
+        const vx = other[0] - x;
+        const vz = other[1] - z;
+        const vl = Math.hypot(vx, vz) || 1;
+        // a corner inside the room, where the other wall comes out on this wall's cabinet side
+        if (Math.abs((vx * G.rx + vz * G.rz) / vl) > 0.2 || (vx * G.nx + vz * G.nz) / vl < 0.5) continue;
+        return [j > i ? "through" : "short", j];
+      }
+      return ["free", null];
+    };
+    const [le, lj] = endAt(G.ox, G.oz);
+    const [re, rj] = endAt(G.ox + G.rx * G.L, G.oz + G.rz * G.L);
+    out.push({
+      wall: i,
+      wallId: `w${i + 1}`,
+      letter: LETTERS[i] ?? String(i + 1),
+      L: G.L,
+      ends: [le, re],
+      frame: { ox: G.ox, oz: G.oz, dx: G.rx, dz: G.rz, nx: G.nx, nz: G.nz },
+      joins: [lj, rj],
+    });
+  });
+  return out;
+}
+
 interface HandContext {
   input: EstimateInput;
   g: Group;
@@ -295,8 +373,8 @@ function layoutByHand(run: Run, units: NonNullable<import("@/lib/estimator").Wal
     if (at + w > hi + EPS) c.warnings.push(`${where}: ${u.label?.trim() || info.label} is cut to ${f1(e1 - at)}in to fit the wall.`);
     if (info.cabinet) {
       const pitch = e1 - at;
-      const feature = u.kind === "sink" || u.kind === "hob" || u.kind === "bin" || u.kind === "spice" ? u.kind : undefined;
-      const drawers = u.kind === "drawers" || (u.kind === "hob" && (u.drawers ?? 0) > 0)
+      const feature = u.top ? u.top : u.kind === "sink" || u.kind === "hob" || u.kind === "bin" || u.kind === "spice" ? u.kind : undefined;
+      const drawers = u.kind === "drawers" || (u.kind === "hob" && !u.top && (u.drawers ?? 0) > 0)
         ? Math.max(1, Math.min(6, Math.round(u.drawers ?? c.drawersPerUnit ?? 3)))
         : 0;
       const one = u.kind === "bin" || u.kind === "spice";
@@ -523,8 +601,9 @@ export function layoutKitchen(input: EstimateInput, s: Settings, o: LayoutOption
   const notes: string[] = [];
   const warnings: string[] = [];
   const runs: Run[] = [];
-  const hasBottom = input.bottom.shape !== "none";
-  const hasTop = input.top.shape !== "none";
+  const planWalls = input.plan?.walls ?? null;
+  const hasBottom = planWalls ? planWalls.some((w) => w.bottom) : input.bottom.shape !== "none";
+  const hasTop = planWalls ? planWalls.some((w) => w.top) : input.top.shape !== "none";
   const heights: Heights = {
     leg: hasBottom ? s.leg_height_in : 0,
     bottom: hasBottom ? s.bottom_height_in : 0,
@@ -548,11 +627,13 @@ export function layoutKitchen(input: EstimateInput, s: Settings, o: LayoutOption
     const G = g === "bottom" ? "B" : "T";
     const groupName = g === "bottom" ? "Bottom" : "Top";
 
-    ids.forEach((wallId, wall) => {
-      const letter = "ABC"[wall];
-      const L = Math.max(0, toIn(gi.runs[wall], input.unit));
-      const [le, re] = ENDS[gi.shape][wall];
+    const specs: WallSpec[] = planWalls
+      ? planSpecs(planWalls, g, input.unit)
+      : ids.map((wallId, wall) => ({ wall, wallId, letter: "ABC"[wall], L: Math.max(0, toIn(gi.runs[wall], input.unit)), ends: ENDS[gi.shape][wall] }));
+    specs.forEach(({ wall, wallId, letter, L, ends: [le, re], frame, joins }) => {
       const run: Run = {
+        ...(frame ? { frame } : {}),
+        ...(joins ? { joins } : {}),
         index: runs.length,
         group: g,
         wall,
@@ -569,7 +650,7 @@ export function layoutKitchen(input: EstimateInput, s: Settings, o: LayoutOption
         height: H,
         y0: g === "bottom" ? heights.leg : heights.topY0,
       };
-      const where = `${groupName} wall ${letter} (${WALL_NAME[wallId]}, ${f1(L)}in)`;
+      const where = `${groupName} wall ${letter} (${wallId.startsWith("w") ? "" : `${wallName(wallId)}, `}${f1(L)}in)`;
       if (L <= 0) {
         warnings.push(`${where}: enter its length.`);
         runs.push(run);
@@ -739,6 +820,7 @@ export function layoutKitchen(input: EstimateInput, s: Settings, o: LayoutOption
   }
 
   if (input.island && hasBottom) addIsland(input, s, o, runs, notes, warnings);
+  const walls = planWalls?.map((w) => ({ x0: toIn(w.x0, input.unit), z0: toIn(w.z0, input.unit), x1: toIn(w.x1, input.unit), z1: toIn(w.z1, input.unit) }));
 
   if (runs.some((r) => r.segments.some((sg) => sg.cabinets.length))) {
     const inner = runs.flatMap((r) => r.segments.flatMap((sg) => sg.cabinets.filter((c) => c.kind !== "blind").map((c) => c.inner)));
@@ -748,7 +830,7 @@ export function layoutKitchen(input: EstimateInput, s: Settings, o: LayoutOption
       );
     }
   }
-  return { runs, heights, t: o.t, worktopDepth: o.worktopDepth, notes, warnings };
+  return { runs, heights, t: o.t, worktopDepth: o.worktopDepth, notes, warnings, ...(walls ? { walls } : {}) };
 }
 
 /** A point in plan, and which way the wall runs, for a run on its wall. */

@@ -212,15 +212,29 @@ function buildScene(result: EstimateResult): Built {
     m.rotation.y = rotY;
     scene.add(m);
   };
+  // a drawn plan's walls, seen from either side
+  const twoSided = layout.walls ? track(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, side: THREE.DoubleSide, transparent: true, opacity: 0.45, depthWrite: false })) : null;
+  for (const w of layout.walls ?? []) {
+    const l = Math.hypot(w.x1 - w.x0, w.z1 - w.z0);
+    if (l < 1) continue;
+    const m = new THREE.Mesh(track(new THREE.PlaneGeometry(l, wallH)), twoSided!);
+    m.position.set((w.x0 + w.x1) / 2, wallH / 2, (w.z0 + w.z1) / 2);
+    m.rotation.y = -Math.atan2(w.z1 - w.z0, w.x1 - w.x0);
+    scene.add(m);
+    min.x = Math.min(min.x, w.x0, w.x1);
+    max.x = Math.max(max.x, w.x0, w.x1);
+    min.z = Math.min(min.z, w.z0, w.z1);
+    max.z = Math.max(max.z, w.z0, w.z1);
+  }
   if (walls.back > 0) plane(walls.back, wallH, new THREE.Vector3(walls.back / 2, wallH / 2, -0.01), 0);
   if (walls.left > 0) plane(walls.left, wallH, new THREE.Vector3(-0.01, wallH / 2, walls.left / 2), Math.PI / 2);
   if (walls.right > 0) plane(walls.right, wallH, new THREE.Vector3(walls.rightX + 0.01, wallH / 2, walls.right / 2), -Math.PI / 2);
-  const fw = Math.max(max.x, walls.back, 48) + 36;
-  const fd = Math.max(max.z, walls.left, walls.right, 36) + 48;
+  const fw = Math.max(max.x - Math.min(0, min.x), walls.back, 48) + 36;
+  const fd = Math.max(max.z - Math.min(0, min.z), walls.left, walls.right, 36) + 48;
   const floorG = track(new THREE.PlaneGeometry(fw, fd));
   const floor = new THREE.Mesh(floorG, track(new THREE.MeshStandardMaterial({ color: 0xe9e4da, roughness: 1 })));
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(fw / 2 - 18, -0.02, fd / 2 - 0.01);
+  floor.position.set(Math.min(0, min.x) + fw / 2 - 18, -0.02, Math.min(0, min.z) + fd / 2 - 0.01);
   scene.add(floor);
 
   // dimensions: each wall's length above it, each cabinet's code and width, and the heights
@@ -306,7 +320,7 @@ function buildScene(result: EstimateResult): Built {
 
   const centre = new THREE.Vector3((min.x + max.x) / 2, max.y / 2.4, (min.z + max.z) / 2);
   const size = Math.max(max.x - min.x, max.y, max.z - min.z, 60);
-  const side = walls.right > 0 ? (walls.left > 0 ? 0.12 : -0.55) : 0.55;
+  const side = layout.walls ? 0.35 : walls.right > 0 ? (walls.left > 0 ? 0.12 : -0.55) : 0.55;
   return {
     scene,
     fronts,
