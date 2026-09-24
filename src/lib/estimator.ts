@@ -1,5 +1,5 @@
 import { cuttingLayouts, type BoardLayout, type Piece, type Span } from "@/lib/cutting";
-import { jointsOf, layoutKitchen, SHAPE_WALL_IDS, WALL_NAME, type KitchenLayout, type Run } from "@/lib/kitchen";
+import { jointsOf, layoutKitchen, shelvesFor, SHAPE_WALL_IDS, WALL_NAME, type KitchenLayout, type Run } from "@/lib/kitchen";
 
 /**
  * Kitchen cabinet estimating, from the real walls. The kitchen is laid out as
@@ -97,10 +97,62 @@ export interface OpeningInput {
   worktop: boolean;
 }
 
+/** What can stand in a wall laid out by hand: a cabinet of some kind, or a space for an appliance. */
+export type UnitKind =
+  | "doors"
+  | "drawers"
+  | "sink"
+  | "hob"
+  | "bin"
+  | "spice"
+  | "fridge"
+  | "washer"
+  | "dishwasher"
+  | "cooker"
+  | "hood"
+  | "window"
+  | "gap";
+
+export interface UnitInput {
+  kind: UnitKind;
+  /** in the chosen unit */
+  width: number;
+  doors?: 1 | 2;
+  drawers?: number;
+  label?: string;
+}
+
 export interface WallOptions {
   drawer_units: number;
   drawers_at: "left" | "middle" | "right";
   openings: OpeningInput[];
+  /** laid out by hand, left to right; when set it replaces the automatic layout */
+  custom?: UnitInput[] | null;
+  /** beams across the wall, which the top cabinets must fit under */
+  beams?: BeamInput[];
+}
+
+export interface BeamInput {
+  /** from the wall's left end, facing it */
+  from: number;
+  width: number;
+  /** height of its underside above the floor */
+  bottom: number;
+  /** how far it comes out from the wall */
+  depth: number;
+}
+
+export interface IslandInput {
+  /** along its cabinets */
+  length: number;
+  /** front to back, worktop included */
+  depth: number;
+  /** its middle, measured from the left wall and out from the back wall */
+  x: number;
+  z: number;
+  /** which way the cabinet doors face */
+  facing: "back" | "front" | "left" | "right";
+  custom?: UnitInput[] | null;
 }
 
 export interface GroupInput {
@@ -117,6 +169,7 @@ export interface EstimateInput {
   unit: LengthUnit;
   bottom: GroupInput;
   top: GroupInput;
+  island?: IslandInput | null;
   waste_pct: number;
   labour_per_ft: number;
   margin_pct: number;
@@ -296,6 +349,7 @@ export function normalizeInput(raw: Partial<EstimateInput> & Record<string, unkn
     unit: (raw.unit as LengthUnit) ?? "ft",
     bottom: group(raw.bottom),
     top: group(raw.top),
+    island: raw.island ? (raw.island as IslandInput) : null,
     waste_pct: Number(raw.waste_pct) || 0,
     labour_per_ft: Number(raw.labour_per_ft) || 0,
     margin_pct: Number(raw.margin_pct) || 0,
@@ -309,6 +363,9 @@ export function normalizeInput(raw: Partial<EstimateInput> & Record<string, unkn
  */
 export const SHEET_TOLERANCE_IN = 0.1;
 
+/** a last piece shorter than this is avoided when a joint further back will do */
+const MIN_TAIL_IN = 18;
+
 /**
  * Cut a stretch into as few pieces as a sheet allows, each joint on a
  * partition centre so both pieces are carried.
@@ -320,7 +377,10 @@ export function stripPieces(e0: number, e1: number, joints: number[], maxLen: nu
   let guard = 0;
   while (e1 - at > maxLen + SHEET_TOLERANCE_IN && guard++ < 200) {
     const reach = joints.filter((j) => j > at + 1 && j <= at + maxLen + SHEET_TOLERANCE_IN);
-    const cut = reach.length ? Math.max(...reach) : at + maxLen;
+    // the furthest joint that does not leave a sliver for the last piece
+    const tidy = reach.filter((j) => e1 - j >= Math.min(MIN_TAIL_IN, (e1 - at) / 3) || e1 - j > maxLen);
+    const pick = tidy.length ? tidy : reach;
+    const cut = pick.length ? Math.max(...pick) : at + maxLen;
     out.push([at, cut]);
     at = cut;
   }
@@ -360,6 +420,11 @@ export function estimate(
     t,
     worktopDepth,
     worktopThickness: worktopPart ? thick(worktopPart, 15) : 0,
+    pelmet: (() => {
+      const p = roleOf("top", "pelmet");
+      return p ? Number(p.width_in) || 3 : 0;
+    })(),
+    door: thick(roleOf("door", "door") ?? roleOf("drawer", "drawer_front"), 18),
   });
 
   const pieces: Piece[] = [];
@@ -431,14 +496,31 @@ export function estimate(
     const joints = jointsOf(run, t.bottom);
     const worktop = roleOf(g, "worktop");
     if (worktop) {
+      // deeper than the slab is wide (an island), it is laid in strips side by side
+      const [s0, s1] = run.slab ?? [0, worktopDepth];
+      const deep = s1 - s0;
+      const strips = Math.max(1, Math.ceil(deep / Math.max(1, shortSide(worktop)) - 1e-9));
+      if (strips > 1) notes.push(`Island worktop is ${f1(deep)}in deep, wider than a slab: laid as ${strips} strips of ${f1(deep / strips)}in.`);
       run.worktop.forEach(([a, b]) => {
         const pcs = stripPieces(a, b, joints, longSide(worktop));
-        pcs.forEach(([x, y], i) =>
-          addPiece(worktop, g, over(x, y), "worktop", y - x, worktopDepth, false, `worktop${nth(i, pcs.length)}`, { run: run.index, e0: x, e1: y }));
+        for (let k = 0; k < strips; k++) {
+          const d0 = s0 + (deep * k) / strips;
+          pcs.forEach(([x, y], i) =>
+            addPiece(worktop, g, over(x, y), "worktop", y - x, deep / strips, false, `worktop${nth(i, pcs.length)}${strips > 1 ? ` strip ${k + 1}` : ""}`,
+              { run: run.index, e0: x, e1: y, d0, d1: d0 + deep / strips }));
+        }
         if (pcs.length > 1) {
-          notes.push(`Worktop on wall ${run.letter}: ${pcs.map(([x, y]) => `${f1(y - x)}in`).join(" + ")}, joined over a partition.`);
+          notes.push(`Worktop on ${run.wallId === "island" ? "the island" : `wall ${run.letter}`}: ${pcs.map(([x, y]) => `${f1(y - x)}in`).join(" + ")}, joined over a partition.`);
         }
       });
+    }
+    // an island's back is seen, so it is closed with a finished panel
+    if (run.wallId === "island" && frontPart) {
+      for (const sg of run.segments) {
+        if (sg.filler) continue;
+        stripPieces(sg.e0, sg.e1, joints.filter((j) => j > sg.e0 && j < sg.e1), longSide(frontPart)).forEach(([x, y], i, all) =>
+          addPiece(frontPart, g, over(x, y), "island back panel", y - x, run.height, true, `back panel${nth(i, all.length)}`, { run: run.index, e0: x, e1: y }));
+      }
     }
     const tiles = roleOf(g, "backsplash");
     const gapH = layout.heights.gap;
@@ -478,7 +560,8 @@ export function estimate(
       const openEnds =
         run.segments.filter((sg) => sg.e0 < 0.01 && run.ends[0] === "free").length +
         run.segments.filter((sg) => sg.e1 > run.length - 0.01 && run.ends[1] === "free").length;
-      const inches = front + openEnds * run.depth;
+      // an island is skirted all round
+      const inches = run.wallId === "island" ? 2 * front + 2 * run.depth : front + openEnds * run.depth;
       const unit = (mat.get(skirting.material_id)?.unit ?? "ft").toLowerCase();
       const qty =
         unit === "m" ? inches * 0.0254 : unit === "cm" ? inches * 2.54 : unit === "in" ? inches : unit === "pc" ? Math.ceil(inches / 96) : inches / 12;
@@ -490,9 +573,9 @@ export function estimate(
   for (const run of layout.runs) {
     const g = run.group;
     const code = `${g === "bottom" ? "B" : "T"}${run.letter}`;
-    const H = run.height;
+    const runH = run.height;
     // partitions stand on the base board and carry the rails or top board; the back is fixed behind them
-    const sideH = H - bd[g].base - bd[g].cap;
+
     const carcD = run.depth - bd[g].back;
     const joints = jointsOf(run, t[g]);
     const span = (e0: number, e1: number): Span => ({ run: run.index, e0, e1 });
@@ -510,6 +593,9 @@ export function estimate(
 
     run.segments.forEach((seg) => {
       const len = seg.e1 - seg.e0;
+      // under a beam a stretch of cabinets is shorter than the rest
+      const H = seg.height ?? runH;
+      const sideH = H - bd[g].base - bd[g].cap;
       if (seg.filler) {
         if (frontPart) addPiece(frontPart, g, `${code}F${++filler}`, "filler panel", len, H);
         return;
@@ -544,8 +630,9 @@ export function estimate(
             break;
           case "shelf":
             for (const c of seg.cabinets) {
-              for (let q = 0; q < input[g].shelves * Math.max(1, p.qty); q++) {
-                addPiece(p, g, c.code, "shelf", c.inner - 0.06, carcD - settings.shelf_setback_in, true, `shelf${input[g].shelves > 1 ? ` ${q + 1}` : ""}`);
+              const n = shelvesFor(c, input[g].shelves);
+              for (let q = 0; q < n * Math.max(1, p.qty); q++) {
+                addPiece(p, g, c.code, "shelf", c.inner - 0.06, carcD - settings.shelf_setback_in, true, `shelf${n > 1 ? ` ${q + 1}` : ""}`);
               }
             }
             break;
@@ -568,6 +655,8 @@ export function estimate(
       // fronts: sized to their cabinet
       for (const c of seg.cabinets) {
         const pitch = c.e1 - c.e0;
+        if (c.feature === "sink") notes.push(`${c.code} holds the sink: no shelf, and the worktop is cut out over it.`);
+        if (c.feature === "hob") notes.push(`${c.code} sits under the hob: the worktop is cut out for it.`);
         if (c.kind === "blind") {
           if (c.filler > 0 && frontPart) addPiece(frontPart, g, c.code, "filler panel", c.filler, H);
           continue;

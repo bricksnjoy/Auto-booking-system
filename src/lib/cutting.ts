@@ -15,6 +15,9 @@ export interface Span {
   /** tiles: the row's bottom and top, above the worktop */
   y0?: number;
   y1?: number;
+  /** a worktop in more than one strip: how far out from the back this one reaches */
+  d0?: number;
+  d1?: number;
 }
 
 export interface Piece {

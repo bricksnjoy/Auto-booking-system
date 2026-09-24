@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState, type ReactNode } from "react";
+import { useActionState, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { deleteEstimate, saveEstimate, type EstimatorResult } from "@/app/actions/estimator";
 import {
@@ -10,16 +10,20 @@ import {
   type EstimateInput,
   type EstimateResult,
   type Group,
+  type BeamInput,
   type GroupInput,
+  type IslandInput,
   type LengthUnit,
   type Material,
   type OpeningInput,
   type Part,
   type Settings,
   type Shape,
+  type UnitInput,
+  type UnitKind,
   type WallOptions,
 } from "@/lib/estimator";
-import { SHAPE_WALL_IDS, WALL_NAME, type Run } from "@/lib/kitchen";
+import { planPoint, SHAPE_WALL_IDS, UNITS, WALL_NAME, type KitchenLayout, type Run } from "@/lib/kitchen";
 import { money, date } from "@/lib/format";
 import { Drawings } from "./drawings";
 
@@ -61,6 +65,7 @@ function inUnit(x: EstimateInput, to: LengthUnit): EstimateInput {
     walls: g.walls.map((w) => ({
       ...w,
       openings: w.openings.map((o) => ({ ...o, width: c(o.width), from_left: o.from_left === null ? null : c(o.from_left) })),
+      custom: w.custom ? w.custom.map((u) => ({ ...u, width: c(u.width) })) : w.custom,
     })),
   });
   return { ...x, unit: to, bottom: group(x.bottom), top: group(x.top) };
@@ -145,6 +150,11 @@ export function Estimator({
             runs={result.layout.runs.filter((r) => r.group === g)}
             onChange={(next) => setGroup(g, next)} />
         ))}
+
+        {inp.bottom.shape !== "none" && (
+          <IslandPanel value={inp.island ?? null} unit={inp.unit} layout={result.layout} settings={settings}
+            onChange={(island) => setInp((x) => ({ ...x, island }))} />
+        )}
 
         <Panel title="Price">
           <div className="grid gap-4 sm:grid-cols-3">
@@ -358,7 +368,7 @@ function GroupEditor({
                           patch({ runs: runsIn });
                         }} />
                     </div>
-                    {bottom && (
+                    {bottom && !w.custom && (
                       <>
                         <div className="w-28">
                           <label htmlFor={`${group}-du${i}`} className={tiny}>Drawer units</label>
@@ -378,11 +388,29 @@ function GroupEditor({
                         )}
                       </>
                     )}
+                    {run && run.length > 0 && !w.custom && (
+                      <span className="ml-auto flex gap-3 pb-1.5 text-xs">
+                        <button type="button" className="font-medium text-[var(--brand)] hover:underline"
+                          onClick={() => setWall(i, { custom: unitsFromRun(run, unit) })}>
+                          Design this wall by hand
+                        </button>
+                        <button type="button" className="text-[var(--muted)] hover:underline" onClick={() => setWall(i, { custom: [] })}>
+                          start empty
+                        </button>
+                      </span>
+                    )}
                   </div>
 
-                  {run && run.length > 0 && <RunStrip run={run} />}
-
-                  <Openings group={group} unit={unit} value={w.openings} onChange={(openings) => setWall(i, { openings })} />
+                  {run && run.length > 0 && w.custom ? (
+                    <WallDesigner group={group} unit={unit} run={run} units={w.custom}
+                      onChange={(custom) => setWall(i, { custom })} onAuto={() => setWall(i, { custom: null })} />
+                  ) : (
+                    <>
+                      {run && run.length > 0 && <RunStrip run={run} />}
+                      <Openings group={group} unit={unit} value={w.openings} onChange={(openings) => setWall(i, { openings })} />
+                    </>
+                  )}
+                  {!bottom && <Beams unit={unit} value={w.beams ?? []} onChange={(beams) => setWall(i, { beams })} />}
                 </div>
               );
             })}
@@ -532,6 +560,527 @@ function Openings({ group, unit, value, onChange }: {
           + Other
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────── beams ─────────────── */
+
+/** Beams across a wall: the top cabinets under one are made shorter to fit. */
+function Beams({ unit, value, onChange }: { unit: LengthUnit; value: BeamInput[]; onChange: (next: BeamInput[]) => void }) {
+  const set = (i: number, p: Partial<BeamInput>) => onChange(value.map((b, k) => (k === i ? { ...b, ...p } : b)));
+  const u = (inches: number) => fromInches(inches, unit);
+  const num = (v: string) => (v === "" ? 0 : Number(v));
+  return (
+    <div className="mt-3 space-y-2">
+      {value.length > 0 && (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-[var(--muted)]">
+              <th className="pb-1 font-medium">Beam from left</th>
+              <th className="pb-1 font-medium">Width</th>
+              <th className="pb-1 font-medium">Underside from floor</th>
+              <th className="pb-1 font-medium">Out from wall</th>
+              <th className="w-6" />
+            </tr>
+          </thead>
+          <tbody>
+            {value.map((b, i) => (
+              <tr key={i}>
+                {(["from", "width", "bottom", "depth"] as const).map((k) => (
+                  <td key={k} className="py-1 pr-2">
+                    <input type="number" step="any" min="0" className={small} value={b[k] || ""} aria-label={`Beam ${k} in ${unit}`}
+                      onChange={(e) => set(i, { [k]: num(e.target.value) })} />
+                  </td>
+                ))}
+                <td className="py-1 text-right">
+                  <button type="button" aria-label="Remove beam" className="px-1 text-[var(--muted)] hover:text-red-700"
+                    onClick={() => onChange(value.filter((_, k) => k !== i))}>×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <button type="button" className="text-xs font-medium text-[var(--brand)] hover:underline"
+        onClick={() => onChange([...value, { from: 0, width: u(24), bottom: u(84), depth: u(12) }])}>
+        + Beam over this wall
+      </button>
+    </div>
+  );
+}
+
+/* ─────────────── the island ─────────────── */
+
+const FACING: [IslandInput["facing"], string][] = [
+  ["back", "the back wall"],
+  ["front", "the room"],
+  ["left", "the left wall"],
+  ["right", "the right wall"],
+];
+
+function IslandPanel({ value, unit, layout, settings, onChange }: {
+  value: IslandInput | null;
+  unit: LengthUnit;
+  layout: KitchenLayout;
+  settings: Settings;
+  onChange: (next: IslandInput | null) => void;
+}) {
+  const run = layout.runs.find((r) => r.wallId === "island");
+  const u = (inches: number) => fromInches(inches, unit);
+  if (!value) {
+    const back = layout.runs.find((r) => r.group === "bottom" && r.wallId === "back");
+    const width = back?.length ?? 120;
+    return (
+      <Panel title="Island">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+          <span className="text-[var(--muted)]">A free-standing island, or one joined to the cabinets as a peninsula.</span>
+          <button type="button" className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--hover)]"
+            onClick={() => onChange({
+              length: u(Math.min(72, Math.max(36, width * 0.5))),
+              depth: u(36),
+              x: u(width / 2),
+              z: u(settings.bottom_depth_in + 42 + 18),
+              facing: "back",
+              custom: null,
+            })}>
+            + Add an island
+          </button>
+        </div>
+      </Panel>
+    );
+  }
+  const set = (p: Partial<IslandInput>) => onChange({ ...value, ...p });
+  return (
+    <Panel title="Island">
+      <div className="flex flex-wrap items-end gap-3">
+        {([["length", "Length"], ["depth", "Depth, with worktop"]] as const).map(([k, text]) => (
+          <div key={k} className="w-36">
+            <label className={tiny} htmlFor={`is-${k}`}>{text} ({unit})</label>
+            <input id={`is-${k}`} type="number" step="any" min="0" className={small} value={value[k] || ""}
+              onChange={(e) => set({ [k]: Number(e.target.value) || 0 })} />
+          </div>
+        ))}
+        <div className="w-44">
+          <label className={tiny} htmlFor="is-face">Doors face</label>
+          <select id="is-face" className={small} value={value.facing} onChange={(e) => set({ facing: e.target.value as IslandInput["facing"] })}>
+            {FACING.map(([f, t]) => <option key={f} value={f}>{t}</option>)}
+          </select>
+        </div>
+        <button type="button" className="ml-auto pb-1.5 text-xs text-red-700 hover:underline" onClick={() => onChange(null)}>Remove the island</button>
+      </div>
+
+      <TopView layout={layout} value={value} unit={unit} onMove={(x, z) => set({ x, z })} />
+
+      {run && run.length > 0 && (value.custom ? (
+        <WallDesigner group="bottom" unit={unit} run={run} units={value.custom}
+          onChange={(custom) => set({ custom })} onAuto={() => set({ custom: null })} />
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1"><RunStrip run={run} /></div>
+          <button type="button" className="text-xs font-medium text-[var(--brand)] hover:underline"
+            onClick={() => set({ custom: unitsFromRun(run, unit) })}>
+            Design the island by hand
+          </button>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+/**
+ * The kitchen from above, to put the island where it goes: drag it, and it
+ * snaps against the cabinets to join them, or keeps its distance.
+ */
+function TopView({ layout, value, unit, onMove }: {
+  layout: KitchenLayout;
+  value: IslandInput;
+  unit: LengthUnit;
+  onMove: (x: number, z: number) => void;
+}) {
+  const svg = useRef<SVGSVGElement>(null);
+  const [drag, setDrag] = useState<{ sx: number; sz: number; cx: number; cz: number; x: number; z: number } | null>(null);
+  const island = layout.runs.find((r) => r.wallId === "island");
+  const others = layout.runs.filter((r) => r.wallId !== "island" && r.length > 0);
+  const rectOf = (r: Run, d0: number, d1: number) => {
+    const a = planPoint(layout, r, 0, d0);
+    const b = planPoint(layout, r, r.length, d1);
+    return { x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), z0: Math.min(a.z, b.z), z1: Math.max(a.z, b.z) };
+  };
+  const cx = drag ? drag.x : toInches(value.x, unit);
+  const cz = drag ? drag.z : toInches(value.z, unit);
+  const len = toInches(value.length, unit);
+  const dep = toInches(value.depth, unit);
+  const side = value.facing === "left" || value.facing === "right";
+  const hx = (side ? dep : len) / 2;
+  const hz = (side ? len : dep) / 2;
+  const blocks = others.filter((r) => r.group === "bottom").map((r) => rectOf(r, 0, Math.max(layout.worktopDepth, r.depth)));
+  const tops = others.filter((r) => r.group === "top").map((r) => rectOf(r, 0, r.depth));
+
+  let x0 = Math.min(0, cx - hx);
+  let x1 = Math.max(cx + hx, 48);
+  let z1 = Math.max(cz + hz, 48);
+  for (const b of [...blocks, ...tops]) {
+    x0 = Math.min(x0, b.x0);
+    x1 = Math.max(x1, b.x1);
+    z1 = Math.max(z1, b.z1);
+  }
+  const pad = 30;
+  const vb = { x: x0 - pad, y: -pad, w: x1 - x0 + pad * 2, h: z1 + pad * 2 };
+  const fs = Math.max(vb.w, vb.h) / 45;
+
+  // what the island is snapped to, and how far it is from each run of cabinets
+  const snap = (x: number, z: number) => {
+    const cand = (v: number, targets: number[]) => {
+      let best = v;
+      let dist = 5;
+      for (const t of targets) if (Math.abs(t - v) < dist) [best, dist] = [t, Math.abs(t - v)];
+      return best;
+    };
+    const xs = blocks.flatMap((b) => [b.x1 + hx, b.x0 - hx, b.x0 + hx, b.x1 - hx]).concat([hx]);
+    const zs = blocks.flatMap((b) => [b.z1 + hz, b.z0 - hz, b.z0 + hz, b.z1 - hz]).concat([hz]);
+    return [cand(Math.round(x * 2) / 2, xs), cand(Math.round(z * 2) / 2, zs)] as const;
+  };
+  const toSvg = (ev: React.PointerEvent) => {
+    const m = svg.current?.getScreenCTM();
+    if (!m) return { x: 0, z: 0 };
+    const p = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(m.inverse());
+    return { x: p.x, z: p.y };
+  };
+  const gaps = blocks
+    .map((b, i) => {
+      const gx = Math.max(b.x0 - (cx + hx), cx - hx - b.x1, 0);
+      const gz = Math.max(b.z0 - (cz + hz), cz - hz - b.z1, 0);
+      return { r: others.filter((r) => r.group === "bottom")[i], d: Math.hypot(gx, gz), b };
+    })
+    .filter((g) => g.r);
+
+  const frontEdge = island ? rectOf(island, island.depth, island.depth + 1) : null;
+  return (
+    <div className="space-y-1.5">
+      <svg ref={svg} viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} className="h-72 w-full touch-none rounded-md border border-[var(--border)] bg-white"
+        onPointerMove={(ev) => {
+          if (!drag) return;
+          const p = toSvg(ev);
+          const [x, z] = snap(drag.cx + p.x - drag.sx, drag.cz + p.z - drag.sz);
+          setDrag({ ...drag, x, z });
+        }}
+        onPointerUp={() => {
+          if (!drag) return;
+          onMove(fromInches(drag.x, unit), fromInches(drag.z, unit));
+          setDrag(null);
+        }}
+        fontFamily="Poppins, Arial, sans-serif">
+        {/* walls */}
+        {(["back", "left", "right"] as const).map((w) => {
+          const r = others.find((x) => x.wallId === w);
+          if (!r) return null;
+          const a = planPoint(layout, r, 0, 0);
+          const b = planPoint(layout, r, r.length, 0);
+          return <line key={w} x1={a.x} y1={a.z} x2={b.x} y2={b.z} stroke="#1b2330" strokeWidth={fs / 2.2} strokeLinecap="square" />;
+        })}
+        {blocks.map((b, i) => (
+          <rect key={`b${i}`} x={b.x0} y={b.z0} width={b.x1 - b.x0} height={b.z1 - b.z0} fill="#dfe6ef" stroke="#0b1f3a" strokeWidth={fs / 10} />
+        ))}
+        {tops.map((b, i) => (
+          <rect key={`t${i}`} x={b.x0} y={b.z0} width={b.x1 - b.x0} height={b.z1 - b.z0} fill="none" stroke="#6b7686" strokeWidth={fs / 14} strokeDasharray={`${fs / 2} ${fs / 3}`} />
+        ))}
+        {/* the island: its worktop, and a mark on the side the doors face */}
+        <g className="cursor-move" onPointerDown={(ev) => {
+          (ev.target as Element).setPointerCapture?.(ev.pointerId);
+          const p = toSvg(ev);
+          setDrag({ sx: p.x, sz: p.z, cx, cz, x: cx, z: cz });
+        }}>
+          <rect x={cx - hx} y={cz - hz} width={hx * 2} height={hz * 2} fill="#e7e2d8" stroke="#b0772b" strokeWidth={fs / 8} rx={1} />
+          {!drag && frontEdge && (
+            <rect x={frontEdge.x0} y={frontEdge.z0} width={Math.max(frontEdge.x1 - frontEdge.x0, 0.8)} height={Math.max(frontEdge.z1 - frontEdge.z0, 0.8)} fill="#0b1f3a" />
+          )}
+          <text x={cx} y={cz} fontSize={fs * 0.9} textAnchor="middle" dominantBaseline="middle" fill="#1b2330" fontWeight={600}>Island</text>
+          <text x={cx} y={cz + fs * 1.1} fontSize={fs * 0.7} textAnchor="middle" dominantBaseline="middle" fill="#6b7686">
+            {f1(len)} × {f1(dep)}in
+          </text>
+        </g>
+        {gaps.filter((g) => g.d > 0.5 && g.d < 120).map((g, i) => {
+          // a line across the walkway to the nearest run
+          const px = Math.min(Math.max(cx, g.b.x0), g.b.x1);
+          const pz = Math.min(Math.max(cz, g.b.z0), g.b.z1);
+          const qx = Math.min(Math.max(px, cx - hx), cx + hx);
+          const qz = Math.min(Math.max(pz, cz - hz), cz + hz);
+          return (
+            <g key={`g${i}`}>
+              <line x1={px} y1={pz} x2={qx} y2={qz} stroke={g.d < 36 ? "#b91c1c" : "#6b7686"} strokeWidth={fs / 12} strokeDasharray={`${fs / 3} ${fs / 4}`} />
+              <text x={(px + qx) / 2 + fs * 0.4} y={(pz + qz) / 2} fontSize={fs * 0.75} fill={g.d < 36 ? "#b91c1c" : "#1b2330"} dominantBaseline="middle">{f1(g.d)}in</text>
+            </g>
+          );
+        })}
+      </svg>
+      <p className="text-xs text-[var(--muted)]">
+        Drag the island. It snaps against the cabinets to join them as a peninsula; left free, keep 36–42in to walk round it. The dark edge is where its
+        doors are. Its middle is {f1(fromInches(cx, unit))}{unit} from the left wall and {f1(fromInches(cz, unit))}{unit} out from the back wall.
+      </p>
+    </div>
+  );
+}
+
+/* ─────────────── a wall laid out by hand ─────────────── */
+
+const toInches = (v: number, unit: LengthUnit) => (unit === "ft" ? v * 12 : unit === "cm" ? v / 2.54 : v);
+const fromInches = (v: number, unit: LengthUnit) => convert(v, "in", unit);
+
+/** Where the units of a run can go: the whole zone less any blind corner. */
+function freeSpan(run: Run) {
+  const lo = run.zone[0] + (run.ends[0] === "through" ? run.depth : 0);
+  const hi = run.zone[1] - (run.ends[1] === "through" ? run.depth : 0);
+  return { lo, hi: Math.max(lo, hi) };
+}
+
+/** The automatic layout of a wall, as units to start designing from. */
+function unitsFromRun(run: Run, unit: LengthUnit): UnitInput[] {
+  const { lo, hi } = freeSpan(run);
+  const items: (UnitInput & { at: number })[] = [];
+  for (const sg of run.segments) {
+    for (const c of sg.cabinets) {
+      if (c.kind === "blind" || c.e1 <= lo + 0.01 || c.e0 >= hi - 0.01) continue;
+      const kind: UnitKind = c.feature ?? (c.kind === "drawers" ? "drawers" : "doors");
+      items.push({ at: c.e0, kind, width: fromInches(c.e1 - c.e0, unit), ...(c.kind === "drawers" ? { drawers: c.drawers } : { doors: c.doors === 1 ? 1 : 2 }) });
+    }
+    if (sg.filler) items.push({ at: sg.e0, kind: "gap", width: fromInches(sg.e1 - sg.e0, unit), label: "Panel" });
+  }
+  for (const o of run.openings) items.push({ at: o.e0, kind: o.kind, width: fromInches(o.e1 - o.e0, unit), label: o.label });
+  return items.sort((a, b) => a.at - b.at).map((u) => ({ kind: u.kind, width: u.width, doors: u.doors, drawers: u.drawers, label: u.label }));
+}
+
+const KIND_TONE: Partial<Record<UnitKind, string>> = {
+  doors: "bg-[var(--brand-soft)] text-[var(--brand)]",
+  drawers: "bg-[#d5dde8] text-[var(--brand)]",
+  sink: "bg-sky-100 text-sky-900",
+  hob: "bg-slate-800 text-white",
+  bin: "bg-emerald-50 text-emerald-900",
+  spice: "bg-orange-50 text-orange-900",
+};
+
+/**
+ * One wall as a strip to lay out by hand: pick what goes where, drag the
+ * joints to size it, and everything — cuts, drawings, 3D — follows.
+ */
+function WallDesigner({ group, unit, run, units, onChange, onAuto }: {
+  group: Group;
+  unit: LengthUnit;
+  run: Run;
+  units: UnitInput[];
+  onChange: (next: UnitInput[]) => void;
+  onAuto: () => void;
+}) {
+  const strip = useRef<HTMLDivElement>(null);
+  const [sel, setSel] = useState<number | null>(units.length ? 0 : null);
+  const [drag, setDrag] = useState<{ i: number; x0: number; base: number[]; widths: number[] } | null>(null);
+  const { lo, hi } = freeSpan(run);
+  const L = run.length || 1;
+  const widths = drag?.widths ?? units.map((u) => toInches(u.width, unit));
+  const used = widths.reduce((a, b) => a + b, 0);
+  const left = hi - lo - used;
+  const pct = (e: number) => `${(Math.max(0, Math.min(e, L)) / L) * 100}%`;
+  const kinds = (Object.keys(UNITS) as UnitKind[]).filter((k) => UNITS[k].groups.includes(group));
+  const current = sel !== null ? units[sel] : undefined;
+  const set = (i: number, p: Partial<UnitInput>) => onChange(units.map((u, k) => (k === i ? { ...u, ...p } : u)));
+  const snap = (v: number) => Math.round(v * 2) / 2;
+
+  function add(kind: UnitKind) {
+    const room = hi - lo - used;
+    const want = UNITS[kind].inches;
+    const w = room >= 6 && room < want ? room : want;
+    const at = sel === null ? units.length : sel + 1;
+    const next = [...units];
+    next.splice(at, 0, { kind, width: fromInches(w, unit), ...(kind === "drawers" ? { drawers: 3 } : {}) });
+    onChange(next);
+    setSel(at);
+  }
+  function startDrag(i: number, ev: React.PointerEvent) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    (ev.target as HTMLElement).setPointerCapture(ev.pointerId);
+    const base = units.map((u) => toInches(u.width, unit));
+    setDrag({ i, x0: ev.clientX, base, widths: base });
+    setSel(i);
+  }
+  function moveDrag(ev: React.PointerEvent) {
+    if (!drag || !strip.current) return;
+    const perIn = strip.current.clientWidth / L;
+    const d = (ev.clientX - drag.x0) / perIn;
+    const w = [...drag.base];
+    const i = drag.i;
+    if (i < w.length - 1) {
+      const pair = drag.base[i] + drag.base[i + 1];
+      w[i] = snap(Math.min(Math.max(drag.base[i] + d, 3), pair - 3));
+      w[i + 1] = pair - w[i];
+    } else {
+      w[i] = snap(Math.min(Math.max(drag.base[i] + d, 3), hi - lo - (used - drag.widths[i])));
+    }
+    setDrag({ ...drag, widths: w });
+  }
+  function endDrag() {
+    if (!drag) return;
+    onChange(units.map((u, k) => ({ ...u, width: fromInches(drag.widths[k], unit) })));
+    setDrag(null);
+  }
+  function fill() {
+    const cab = units.map((u) => UNITS[u.kind].cabinet);
+    const n = cab.filter(Boolean).length;
+    if (!n) return;
+    const fixed = widths.reduce((a, w, k) => a + (cab[k] ? 0 : w), 0);
+    const each = (hi - lo - fixed) / n;
+    if (each < 3) return;
+    onChange(units.map((u, k) => (cab[k] ? { ...u, width: fromInches(each, unit) } : u)));
+  }
+  function move(i: number, by: -1 | 1) {
+    const j = i + by;
+    if (j < 0 || j >= units.length) return;
+    const next = [...units];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+    setSel(j);
+  }
+
+  const starts = widths.map((_, i) => lo + widths.slice(0, i).reduce((a, b) => a + b, 0));
+  const blocks = widths.map((w, i) => ({ i, e0: starts[i], e1: Math.min(starts[i] + w, Math.max(hi, starts[i])), over: starts[i] + w > hi + 0.01 }));
+  const H = group === "bottom" ? "h-36" : "h-28";
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
+        <span className="text-[var(--muted)]">
+          {f1(fromInches(hi - lo, unit))}{unit} to fill
+          {run.ends.includes("through") ? " (the blind corner is fixed)" : ""} · {f1(fromInches(used, unit))}{unit} used ·{" "}
+          {left > 0.25 ? (
+            <span>{f1(fromInches(left, unit))}{unit} left — closed with a panel</span>
+          ) : left < -0.25 ? (
+            <span className="font-medium text-red-700">over by {f1(fromInches(-left, unit))}{unit}</span>
+          ) : (
+            <span className="font-medium text-emerald-700">fits exactly</span>
+          )}
+        </span>
+        <span className="flex gap-3">
+          <button type="button" onClick={fill} className="font-medium text-[var(--brand)] hover:underline">Fill the wall evenly</button>
+          <button type="button" onClick={onAuto} className="text-[var(--muted)] hover:underline">Back to automatic</button>
+        </span>
+      </div>
+
+      {/* the wall, drawn to scale: click a unit to change it, drag its right edge to size it */}
+      <div ref={strip} className={`relative ${H} select-none rounded-md border border-[var(--border)] bg-[repeating-linear-gradient(135deg,#f6f7f9_0_6px,#fff_6px_12px)]`}
+        onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+        {run.ends[0] === "through" && <Fixed e0={run.zone[0]} e1={lo} pct={pct} text="blind corner" />}
+        {run.ends[1] === "through" && <Fixed e0={hi} e1={run.zone[1]} pct={pct} text="blind corner" />}
+        {run.zone[0] > 0.01 && <Fixed e0={0} e1={run.zone[0]} pct={pct} text="corner" muted />}
+        {run.zone[1] < L - 0.01 && <Fixed e0={run.zone[1]} e1={L} pct={pct} text="corner" muted />}
+        {blocks.map(({ i, e0, e1, over }) => {
+          const u = units[i];
+          const info = UNITS[u.kind];
+          const cabinet = info.cabinet;
+          const doors = u.kind === "bin" || u.kind === "spice" ? 1 : u.doors ?? ((e1 - e0) <= 18 ? 1 : 2);
+          return (
+            <div key={i} role="button" tabIndex={0} onClick={() => setSel(i)} onKeyDown={(e) => e.key === "Enter" && setSel(i)}
+              className={`absolute inset-y-0 flex flex-col overflow-hidden border-2 text-[10px] leading-tight ${
+                sel === i ? "z-10 border-[var(--brand)]" : "border-white"
+              } ${cabinet ? KIND_TONE[u.kind] ?? "" : "border-dashed bg-white text-[var(--muted)]"} ${over ? "ring-2 ring-red-400" : ""}`}
+              style={{ left: pct(e0), width: pct(e1 - e0) }}>
+              <div className="flex flex-1">
+                {cabinet && (u.kind === "drawers" || (u.kind === "hob" && (u.drawers ?? 0) > 0)) ? (
+                  <div className="flex flex-1 flex-col">
+                    {Array.from({ length: u.drawers ?? 3 }, (_, k) => (
+                      <div key={k} className="flex flex-1 items-start justify-center border-b border-current/20 pt-1">
+                        <span className="h-0.5 w-1/3 rounded bg-current/60" />
+                      </div>
+                    ))}
+                  </div>
+                ) : cabinet ? (
+                  Array.from({ length: doors }, (_, k) => <div key={k} className="flex-1 border-r border-current/20 last:border-r-0" />)
+                ) : null}
+              </div>
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 px-0.5 text-center">
+                <span className="block truncate font-semibold">{u.label?.trim() || info.label}</span>
+                <span className="block truncate opacity-80">{f1(fromInches(e1 - e0, unit))}{unit}</span>
+              </div>
+              <span onPointerDown={(ev) => startDrag(i, ev)} aria-label="Drag to resize"
+                className="absolute inset-y-0 right-0 z-20 w-2.5 cursor-col-resize bg-[var(--brand)]/0 hover:bg-[var(--brand)]/40" />
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span className="text-[var(--muted)]">Add</span>
+        {kinds.map((k) => (
+          <button key={k} type="button" onClick={() => add(k)} className="font-medium text-[var(--brand)] hover:underline">+ {UNITS[k].label}</button>
+        ))}
+      </div>
+
+      {current && sel !== null && (
+        <div className="flex flex-wrap items-end gap-3 rounded-lg bg-[var(--hover)] p-3">
+          <div className="w-40">
+            <label className={tiny} htmlFor="u-kind">Unit {sel + 1}</label>
+            <select id="u-kind" className={small} value={current.kind}
+              onChange={(e) => set(sel, { kind: e.target.value as UnitKind, ...(e.target.value === "drawers" && !current.drawers ? { drawers: 3 } : {}) })}>
+              {kinds.map((k) => <option key={k} value={k}>{UNITS[k].label}</option>)}
+            </select>
+          </div>
+          <div className="w-28">
+            <label className={tiny} htmlFor="u-w">Width ({unit})</label>
+            <input id="u-w" type="number" step="any" min="0" className={small} value={current.width || ""}
+              onChange={(e) => set(sel, { width: Number(e.target.value) || 0 })} />
+          </div>
+          {(current.kind === "doors" || current.kind === "sink" || (current.kind === "hob" && !current.drawers)) && (
+            <Choice text="Doors" value={current.doors ?? "auto"} options={[["auto", "Auto"], [1, "1"], [2, "2"]] as ["auto" | 1 | 2, string][]}
+              onChange={(v) => set(sel, { doors: v === "auto" ? undefined : v })} />
+          )}
+          {(current.kind === "drawers" || current.kind === "hob") && (
+            <div className="w-28">
+              <label className={tiny} htmlFor="u-dr">{current.kind === "hob" ? "Drawers (0 = doors)" : "Drawers"}</label>
+              <input id="u-dr" type="number" min={current.kind === "hob" ? 0 : 1} max="6" step="1" className={small} value={current.drawers ?? (current.kind === "hob" ? 0 : 3)}
+                onChange={(e) => set(sel, { drawers: Math.min(6, Math.max(0, Math.floor(Number(e.target.value) || 0))) })} />
+            </div>
+          )}
+          {!UNITS[current.kind].cabinet && (
+            <div className="w-40">
+              <label className={tiny} htmlFor="u-l">Label</label>
+              <input id="u-l" className={small} value={current.label ?? ""} placeholder={UNITS[current.kind].label}
+                onChange={(e) => set(sel, { label: e.target.value })} />
+            </div>
+          )}
+          <span className="ml-auto flex items-center gap-3 pb-1.5 text-xs">
+            <button type="button" onClick={() => move(sel, -1)} disabled={sel === 0} className="text-[var(--brand)] disabled:opacity-40">← Move</button>
+            <button type="button" onClick={() => move(sel, 1)} disabled={sel === units.length - 1} className="text-[var(--brand)] disabled:opacity-40">Move →</button>
+            <button type="button" className="text-[var(--brand)]"
+              onClick={() => {
+                const next = [...units];
+                const half = { ...current, width: Math.round((current.width / 2) * 100) / 100 };
+                next.splice(sel, 1, half, { ...half });
+                onChange(next);
+              }}>
+              Split
+            </button>
+            <button type="button" className="text-red-700"
+              onClick={() => {
+                onChange(units.filter((_, k) => k !== sel));
+                setSel(units.length > 1 ? Math.max(0, sel - 1) : null);
+              }}>
+              Remove
+            </button>
+          </span>
+        </div>
+      )}
+      <p className="text-xs text-[var(--muted)]">
+        Click a unit to change it; drag its right edge to make it wider or narrower — the next unit gives or takes the difference. Sinks get no shelf and a cut-out in
+        the worktop; a washing machine or dishwasher keeps the worktop over it.
+      </p>
+    </div>
+  );
+}
+
+function Fixed({ e0, e1, pct, text, muted }: { e0: number; e1: number; pct: (e: number) => string; text: string; muted?: boolean }) {
+  return (
+    <div className={`absolute inset-y-0 flex items-center justify-center overflow-hidden text-[10px] ${muted ? "bg-[var(--hover)] text-[var(--muted)]" : "bg-amber-100 text-amber-900"}`}
+      style={{ left: pct(e0), width: pct(e1 - e0) }}>
+      <span className="truncate px-0.5">{text}</span>
     </div>
   );
 }

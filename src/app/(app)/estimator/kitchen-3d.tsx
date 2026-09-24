@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { EstimateResult } from "@/lib/estimator";
 import { kitchenModel, roomWalls, worldBox, type SolidKind } from "@/lib/kitchen-model";
-import { planPoint } from "@/lib/kitchen";
+import { planPoint, runFrame } from "@/lib/kitchen";
 
 const COLOR: Record<SolidKind, number> = {
   carcass: 0xe8dfcf,
@@ -22,7 +22,24 @@ const COLOR: Record<SolidKind, number> = {
   tile: 0xfbfbf9,
   appliance: 0xc4cbd4,
   window: 0xbcd6ea,
+  basin: 0xb9c0c8,
+  tap: 0xc8ced4,
+  hob: 0x16191e,
+  burner: 0x3a3f47,
+  oven: 0x2a2f37,
+  beam: 0xd9d4cc,
 };
+
+/** A door that swings on its hinges, or a drawer that slides out. */
+interface Mover {
+  group: THREE.Group;
+  kind: "door" | "drawer";
+  angle: number;
+  base: THREE.Vector3;
+  slide: THREE.Vector3;
+  t: number;
+  target: number;
+}
 
 const f1 = (n: number) => Number(n.toFixed(1)).toString();
 const ftIn = (inches: number) => {
@@ -35,6 +52,9 @@ interface Built {
   scene: THREE.Scene;
   fronts: THREE.Object3D[];
   dims: THREE.Object3D[];
+  movers: Mover[];
+  /** what can be clicked to open */
+  clickable: THREE.Object3D[];
   centre: THREE.Vector3;
   size: number;
   /** a U is looked into from straight in front; anything else from the open side */
@@ -97,8 +117,8 @@ function buildScene(result: EstimateResult): Built {
       m = track(
         new THREE.MeshStandardMaterial({
           color: COLOR[kind],
-          roughness: kind === "worktop" ? 0.35 : kind === "handle" ? 0.4 : 0.75,
-          metalness: kind === "handle" ? 0.5 : 0,
+          roughness: kind === "worktop" || kind === "hob" ? 0.3 : kind === "handle" || kind === "tap" || kind === "basin" ? 0.35 : 0.75,
+          metalness: kind === "handle" || kind === "tap" || kind === "basin" ? 0.6 : 0,
           transparent: see,
           opacity: see ? 0.35 : 1,
           depthWrite: !see,
@@ -113,19 +133,61 @@ function buildScene(result: EstimateResult): Built {
 
   const min = new THREE.Vector3(Infinity, 0, Infinity);
   const max = new THREE.Vector3(-Infinity, 0, -Infinity);
+  const disc = track(new THREE.CylinderGeometry(0.5, 0.5, 1, 28));
+  const movers = new Map<string, Mover>();
+  const clickable: THREE.Object3D[] = [];
   for (const s of kitchenModel(result)) {
     const b = worldBox(layout, s);
-    const mesh = new THREE.Mesh(box, mat(s.kind));
+    const round = s.kind === "burner";
+    const mesh = new THREE.Mesh(round ? disc : box, mat(s.kind));
     mesh.scale.set(b.x[1] - b.x[0], b.y[1] - b.y[0], b.z[1] - b.z[0]);
-    mesh.position.set((b.x[0] + b.x[1]) / 2, (b.y[0] + b.y[1]) / 2, (b.z[0] + b.z[1]) / 2);
-    const line = new THREE.LineSegments(edges, s.kind === "tile" || s.kind === "back" ? edgeSoft : edgeMat);
-    mesh.add(line);
-    scene.add(mesh);
+    const centre = new THREE.Vector3((b.x[0] + b.x[1]) / 2, (b.y[0] + b.y[1]) / 2, (b.z[0] + b.z[1]) / 2);
+    mesh.position.copy(centre);
+    if (!round) mesh.add(new THREE.LineSegments(edges, s.kind === "tile" || s.kind === "back" ? edgeSoft : edgeMat));
+    let parent: THREE.Object3D = scene;
+    if (s.id) {
+      // doors turn about their hinge edge; drawers slide straight out
+      const run = layout.runs[s.run];
+      const f = runFrame(layout, run);
+      const normal = new THREE.Vector3(f.nx, 0, f.nz);
+      const group = new THREE.Group();
+      let angle = 0;
+      if (s.kind === "door") {
+        const he = s.hinge === "left" ? s.e0 : s.e1;
+        const p = planPoint(layout, run, he, s.d0);
+        group.position.set(p.x, 0, p.z);
+        const free = new THREE.Vector3(centre.x - p.x, 0, centre.z - p.z);
+        const turned = free.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), 1.8);
+        angle = turned.dot(normal) > 0 ? 1.8 : -1.8;
+      }
+      scene.add(group);
+      const m: Mover = {
+        group,
+        kind: s.kind === "door" ? "door" : "drawer",
+        angle,
+        base: group.position.clone(),
+        slide: normal.multiplyScalar(Math.min(18, run.depth * 0.7)),
+        t: 0,
+        target: 0,
+      };
+      movers.set(s.id, m);
+      parent = group;
+    } else if (s.of && movers.has(s.of)) {
+      parent = movers.get(s.of)!.group;
+    }
+    if (parent !== scene) {
+      mesh.position.sub((parent as THREE.Group).position);
+      mesh.userData.mover = s.id ?? s.of;
+      clickable.push(mesh);
+    }
+    parent.add(mesh);
     if (s.front) fronts.push(mesh);
     if (s.label) {
       const l = label(s.label, 5, "#415a77");
-      l.position.set((b.x[0] + b.x[1]) / 2, b.y[1] + 2.5, (b.z[0] + b.z[1]) / 2);
-      scene.add(l);
+      l.position.set(centre.x, b.y[1] + 2.5, centre.z);
+      if (s.kind === "door") l.position.set(centre.x, centre.y, centre.z);
+      if (parent !== scene) l.position.sub((parent as THREE.Group).position);
+      parent.add(l);
       dims.push(l);
     }
     min.x = Math.min(min.x, b.x[0]);
@@ -176,7 +238,7 @@ function buildScene(result: EstimateResult): Built {
   for (const run of layout.runs) {
     if (run.length <= 0) continue;
     const key = `${run.wallId}:${f1(run.length)}`;
-    if (!done.has(key)) {
+    if (!done.has(key) && run.wallId !== "island") {
       done.add(key);
       const y = max.y + 6 + (run.group === "top" ? 0 : 0);
       const a = planPoint(layout, run, 0, 0);
@@ -249,6 +311,8 @@ function buildScene(result: EstimateResult): Built {
     scene,
     fronts,
     dims,
+    movers: [...movers.values()],
+    clickable,
     centre,
     size,
     side,
@@ -286,7 +350,12 @@ function place(camera: THREE.PerspectiveCamera, built: Built, zoom = 1) {
  */
 export function Kitchen3D({ result, file }: { result: EstimateResult; file: string }) {
   const host = useRef<HTMLDivElement>(null);
-  const api = useRef<{ show: (doors: boolean, dims: boolean) => void; reset: () => void; picture: () => string } | null>(null);
+  const api = useRef<{
+    show: (doors: boolean, dims: boolean) => void;
+    reset: () => void;
+    picture: () => string;
+    openAll: (open: boolean) => void;
+  } | null>(null);
   const [doors, setDoors] = useState(true);
   const [showDims, setShowDims] = useState(true);
   const [failed] = useState(() => !canDraw3D());
@@ -335,6 +404,56 @@ export function Kitchen3D({ result, file }: { result: EstimateResult; file: stri
       render();
     };
     controls.addEventListener("change", render);
+
+    // click a door or drawer to open or close it
+    const ease = (x: number) => x * x * (3 - 2 * x);
+    let frame = 0;
+    const step = () => {
+      let moving = false;
+      for (const m of built.movers) {
+        if (Math.abs(m.t - m.target) < 1e-3) continue;
+        m.t += Math.sign(m.target - m.t) * Math.min(0.07, Math.abs(m.target - m.t));
+        const k = ease(m.t);
+        if (m.kind === "door") m.group.rotation.y = m.angle * k;
+        else m.group.position.copy(m.base).addScaledVector(m.slide, k);
+        moving = true;
+      }
+      render();
+      frame = moving ? requestAnimationFrame(step) : 0;
+    };
+    const animate = () => {
+      if (!frame) frame = requestAnimationFrame(step);
+    };
+    const ray = new THREE.Raycaster();
+    const hit = (ev: PointerEvent) => {
+      const r = renderer.domElement.getBoundingClientRect();
+      ray.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), camera);
+      const found = ray.intersectObjects(built.clickable, false).find((x) => x.object.visible && x.object.parent?.visible !== false);
+      const id = found?.object.userData.mover as string | undefined;
+      return id ? built.movers.find((m) => m.group.children.includes(found!.object)) : undefined;
+    };
+    let down: [number, number] | null = null;
+    const onDown = (ev: PointerEvent) => {
+      down = [ev.clientX, ev.clientY];
+    };
+    const onUp = (ev: PointerEvent) => {
+      if (!down || Math.hypot(ev.clientX - down[0], ev.clientY - down[1]) > 5) return;
+      const m = hit(ev);
+      if (!m) return;
+      m.target = m.target ? 0 : 1;
+      animate();
+    };
+    const onMove = (ev: PointerEvent) => {
+      if (ev.buttons) return;
+      renderer.domElement.style.cursor = hit(ev) ? "pointer" : "grab";
+    };
+    renderer.domElement.addEventListener("pointerdown", onDown);
+    renderer.domElement.addEventListener("pointerup", onUp);
+    renderer.domElement.addEventListener("pointermove", onMove);
+    const openAll = (open: boolean) => {
+      for (const m of built.movers) m.target = open ? 1 : 0;
+      animate();
+    };
     const ro = new ResizeObserver(size);
     ro.observe(el);
     place(camera, built);
@@ -343,12 +462,17 @@ export function Kitchen3D({ result, file }: { result: EstimateResult; file: stri
     api.current = {
       show,
       reset,
+      openAll,
       picture: () => {
         render();
         return renderer.domElement.toDataURL("image/png");
       },
     };
     return () => {
+      cancelAnimationFrame(frame);
+      renderer.domElement.removeEventListener("pointerdown", onDown);
+      renderer.domElement.removeEventListener("pointerup", onUp);
+      renderer.domElement.removeEventListener("pointermove", onMove);
       ro.disconnect();
       controls.dispose();
       built.dispose();
@@ -382,6 +506,9 @@ export function Kitchen3D({ result, file }: { result: EstimateResult; file: stri
         <button type="button" className={pill(!doors)} aria-pressed={!doors} onClick={() => setDoors(false)}>Doors off</button>
         <span className="mx-1 h-4 w-px bg-[var(--border)]" />
         <button type="button" className={pill(showDims)} aria-pressed={showDims} onClick={() => setShowDims((v) => !v)}>Dimensions</button>
+        <span className="mx-1 h-4 w-px bg-[var(--border)]" />
+        <button type="button" className={pill(false)} onClick={() => api.current?.openAll(true)}>Open all</button>
+        <button type="button" className={pill(false)} onClick={() => api.current?.openAll(false)}>Close all</button>
         <span className="ml-auto flex gap-3 text-xs">
           <button type="button" className="text-[var(--brand)] hover:underline" onClick={() => api.current?.reset()}>Reset view</button>
           <button type="button" className="text-[var(--brand)] hover:underline" onClick={download}>Download PNG</button>
@@ -392,7 +519,7 @@ export function Kitchen3D({ result, file }: { result: EstimateResult; file: stri
       ) : (
         <div ref={host} className="h-[520px] w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[#f6f7f9]" />
       )}
-      <p className="text-xs text-[var(--muted)]">Drag to turn, scroll to zoom, right-drag to move. All sizes in inches.</p>
+      <p className="text-xs text-[var(--muted)]">Click a door or drawer to open it. Drag to turn, scroll to zoom, right-drag to move. All sizes in inches.</p>
     </div>
   );
 }

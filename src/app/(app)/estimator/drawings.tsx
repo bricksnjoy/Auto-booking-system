@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useId, useRef, useState, type ReactNode } from "react";
 import type { BoardLayout } from "@/lib/cutting";
 import type { CutRow, EstimateResult, Group } from "@/lib/estimator";
-import { planPoint, WALL_NAME, type Run, type WallId } from "@/lib/kitchen";
+import { planPoint, shelvesFor, WALL_NAME, type Run, type WallId } from "@/lib/kitchen";
 import { hingeLeft } from "@/lib/kitchen-model";
 
 const Kitchen3D = dynamic(() => import("./kitchen-3d").then((m) => m.Kitchen3D), {
@@ -37,7 +37,6 @@ const ftIn = (inches: number) => {
   return rest ? `${ft}' ${rest}"` : `${ft}'`;
 };
 const mm = (inches: number) => Math.round(inches * 25.4);
-const TALL = /fridge|freezer|refrig|tall|larder/i;
 
 type Tab = "plan" | "elevations" | "3d" | "cutting" | "cutlist";
 type View = "front" | "inside";
@@ -48,8 +47,9 @@ const TABS: [Tab, string][] = [
   ["cutting", "Cutting layout"],
   ["cutlist", "Cut list"],
 ];
-const WALLS: WallId[] = ["left", "back", "right"];
-const WALL_TITLE: Record<WallId, string> = { back: "Back wall", left: "Left wall", right: "Right wall" };
+const WALLS: WallId[] = ["left", "back", "right", "island"];
+const FEATURE = { sink: "sink", hob: "hob", bin: "bin", spice: "spice" } as const;
+const WALL_TITLE: Record<WallId, string> = { back: "Back wall", left: "Left wall", right: "Right wall", island: "Island" };
 
 /**
  * Drawings of the job, all measured from the real layout: the kitchen from
@@ -303,7 +303,9 @@ function Plan({ result, group }: { result: EstimateResult; group: Group }) {
   let z0 = Infinity;
   let z1 = -Infinity;
   for (const r of runs) {
-    for (const [e, d] of [[0, -wallT], [r.length, -wallT], [0, r.depth + dims.door], [r.length, r.depth + dims.door]]) {
+    // an island's seating side carries its dimensions too
+    const behind = r.wallId === "island" ? Math.min(0, r.slab?.[0] ?? 0) - 16 : -wallT;
+    for (const [e, d] of [[0, behind], [r.length, behind], [0, r.depth + dims.door], [r.length, r.depth + dims.door]]) {
       const p = planPoint(layout, r, e, d);
       x0 = Math.min(x0, p.x);
       x1 = Math.max(x1, p.x);
@@ -339,7 +341,7 @@ function Plan({ result, group }: { result: EstimateResult; group: Group }) {
       </defs>
 
       {/* the walls */}
-      {runs.map((r) => {
+      {runs.filter((r) => r.wallId !== "island").map((r) => {
         const e0 = r.wallId === "back" && has("left") ? -wallT : 0;
         const e1 = r.wallId === "back" && has("right") ? r.length + wallT : r.length;
         return <rect key={`wall${r.index}`} {...rect(r, e0, e1, -wallT, 0)} fill={`url(#w${uid})`} stroke={INK} strokeWidth={fs / 10} />;
@@ -347,6 +349,9 @@ function Plan({ result, group }: { result: EstimateResult; group: Group }) {
 
       {runs.map((r) => (
         <g key={r.index}>
+          {r.slab && (
+            <rect {...rect(r, 0, r.length, r.slab[0], r.slab[1])} fill="none" stroke="#b0772b" strokeWidth={fs / 12} strokeDasharray={`${fs / 2} ${fs / 4}`} />
+          )}
           {r.openings.map((o, i) => {
             const b = rect(r, o.e0, o.e1, 0, r.depth);
             const c = at(r, (o.e0 + o.e1) / 2, r.depth / 2);
@@ -388,8 +393,17 @@ function Plan({ result, group }: { result: EstimateResult; group: Group }) {
                     </text>
                     <text x={what[0]} y={what[1]} fontSize={Math.min(fs * 0.55, pitch / 4.4)} fill={MUTED} textAnchor="middle"
                       dominantBaseline="middle" transform={turn(r, what)}>
-                      {c.kind === "blind" ? "blind corner" : c.kind === "drawers" ? `${c.drawers} drawers` : `${c.doors} door${c.doors > 1 ? "s" : ""}`}
+                      {c.feature ? FEATURE[c.feature] : c.kind === "blind" ? "blind corner" : c.kind === "drawers" ? `${c.drawers} drawers` : `${c.doors} door${c.doors > 1 ? "s" : ""}`}
                     </text>
+                    {c.feature === "sink" && (
+                      <rect {...rect(r, (c.e0 + c.e1) / 2 - Math.min(pitch - 6, 30) / 2, (c.e0 + c.e1) / 2 + Math.min(pitch - 6, 30) / 2, 4, Math.min(r.depth - 3, 21))}
+                        rx={2} fill="none" stroke={INK} strokeWidth={fs / 10} />
+                    )}
+                    {c.feature === "hob" &&
+                      [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([de, dd], k) => {
+                        const [cx, cy] = at(r, (c.e0 + c.e1) / 2 + (de * (Math.min(pitch - 3, 30) - 4)) / 4, 12 + dd * 4.5);
+                        return <circle key={k} cx={cx} cy={cy} r={Math.min(3.5, pitch / 7)} fill="none" stroke={INK} strokeWidth={fs / 10} />;
+                      })}
                   </g>
                 );
               })
@@ -449,10 +463,12 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
   if (!runs.length) return null;
   const h = layout.heights;
   const W = Math.max(...runs.map((r) => r.length));
-  const HT = Math.max(h.total, 12);
-  const fs = Math.max(W, HT) / 44;
   const bottom = runs.find((r) => r.group === "bottom");
   const top = runs.find((r) => r.group === "top");
+  // only as tall as what stands on this wall
+  const tiled = result.pieces.some((p) => p.part === "tile" && p.span?.run === bottom?.index);
+  const HT = Math.max(top ? h.total : h.leg + h.bottom + h.worktop + (tiled ? h.gap : 0), 12);
+  const fs = Math.max(W, HT) / 44;
   // the left wall's corner is at its right end: its runs line up there
   const off = (r: Run) => (wallId === "left" ? W - r.length : 0);
   const X = (r: Run, e: number) => off(r) + e;
@@ -488,6 +504,8 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
     const out: ReactNode[] = [];
 
     for (const sg of r.segments) {
+      // under a beam a stretch is shorter
+      const H = sg.height ?? r.height;
       if (sg.filler) {
         out.push(
           <g key={`f${sg.e0}`}>
@@ -497,13 +515,13 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
         );
         continue;
       }
+      if (g === "top" && dims.pelmet > 0) {
+        out.push(<rect key={`pe${sg.e0}`} {...box(r, sg.e0, sg.e1, y0 + H, y0 + H + dims.pelmet)} fill="#e4d8c2" stroke={NAVY} strokeWidth={stroke} />);
+      }
       if (inside) {
         out.push(<rect key={`bk${sg.e0}`} {...box(r, sg.e0, sg.e1, y0, y0 + H)} fill={FILL.back} stroke={INK} strokeWidth={stroke} />);
         if (base > 0) out.push(<rect key={`ba${sg.e0}`} {...box(r, sg.e0, sg.e1, y0, y0 + base)} fill={FILL.carcass} stroke={NAVY} strokeWidth={thin} />);
         if (cap > 0) out.push(<rect key={`ca${sg.e0}`} {...box(r, sg.e0, sg.e1, y0 + H - cap, y0 + H)} fill={FILL.carcass} stroke={NAVY} strokeWidth={thin} />);
-        if (g === "top" && dims.pelmet > 0) {
-          out.push(<rect key={`pe${sg.e0}`} {...box(r, sg.e0, sg.e1, y0 + H - cap - dims.pelmet, y0 + H - cap)} fill="#e4d8c2" stroke={NAVY} strokeWidth={thin} />);
-        }
         for (const p of sg.partitions) {
           out.push(<rect key={`p${p}`} {...box(r, p, p + t, y0 + base, y0 + H - cap)} fill={FILL.carcass} stroke={NAVY} strokeWidth={thin} />);
         }
@@ -516,7 +534,7 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
         const ceil = y0 + H - cap;
         if (inside) {
           if (c.kind !== "drawers") {
-            const n = dims.shelves[g];
+            const n = shelvesFor(c, dims.shelves[g]);
             for (let k = 1; k <= n; k++) {
               const yc = floor + ((ceil - floor) * k) / (n + 1);
               out.push(<rect key={`s${c.code}${k}`} {...box(r, left + 0.03, right - 0.03, yc - t / 2, yc + t / 2)} fill={FILL.carcass} stroke={NAVY} strokeWidth={thin} />);
@@ -534,9 +552,9 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
             }
           }
           out.push(
-            <text key={`l${c.code}`} x={X(r, left) + fs * 0.3} y={Y(ceil - (g === "top" ? dims.pelmet : 0)) + fs * 0.8}
+            <text key={`l${c.code}`} x={X(r, left) + fs * 0.3} y={Y(ceil) + fs * 0.8}
               fontSize={Math.min(fs * 0.6, pitch / 4)} fontWeight={600} fill={INK}>
-              {c.code}{c.kind === "blind" ? " · blind corner" : ""}
+              {c.code}{c.kind === "blind" ? " · blind corner" : c.feature ? ` · ${FEATURE[c.feature]}` : ""}
             </text>,
           );
           return;
@@ -589,7 +607,7 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
         out.push(
           <text key={`l${c.code}`} x={X(r, (c.e0 + c.e1) / 2)} y={g === "bottom" ? Y(y0 + 1.4) : Y(y0 + H - 1.4) + fs * 0.4}
             fontSize={Math.min(fs * 0.55, pitch / 4.5)} fill={MUTED} textAnchor="middle">
-            {c.code}
+            {c.code}{c.feature ? ` · ${FEATURE[c.feature]}` : ""}
           </text>,
         );
       });
@@ -613,10 +631,10 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
       let yb = y0 + H;
       if (g === "bottom") {
         ya = 0;
-        yb = TALL.test(o.label) && !o.worktop ? Math.min(70, h.top > 0 ? h.topY0 - 0.5 : 70) : o.worktop ? y0 + H - 0.2 : y0 + H + dims.worktop;
+        yb = o.kind === "fridge" ? Math.min(70, h.top > 0 ? h.topY0 - 0.5 : 70) : o.worktop ? y0 + H - 0.2 : y0 + H + dims.worktop;
       }
       const b = box(r, o.e0, o.e1, ya, yb);
-      const isWindow = g === "top" && /window/i.test(o.label);
+      const isWindow = o.kind === "window";
       const ty = b.y + Math.min(b.height / 2, fs * 2.2);
       out.push(
         <g key={`op${o.e0}`}>
@@ -627,6 +645,17 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
               <line x1={b.x} y1={b.y + b.height / 2} x2={b.x + b.width} y2={b.y + b.height / 2} stroke={LINE} strokeWidth={fs / 16} />
             </>
           )}
+          {o.kind === "cooker" && (
+            <>
+              <rect x={b.x + 1} y={b.y} width={b.width - 2} height={0.8} fill={INK} />
+              <rect x={b.x + 2.5} y={Y(y0 + H * 0.62)} width={b.width - 5} height={H * 0.62 - 4} fill="none" stroke={INK} strokeWidth={fs / 12} rx={1} />
+              <line x1={b.x + 4} y1={Y(y0 + H * 0.62) + 2} x2={b.x + b.width - 4} y2={Y(y0 + H * 0.62) + 2} stroke={INK} strokeWidth={fs / 5} strokeLinecap="round" />
+            </>
+          )}
+          {o.kind === "hood" && (
+            <path d={`M${b.x + 1} ${b.y + b.height - 6} L${b.x + b.width - 1} ${b.y + b.height - 6} L${b.x + b.width * 0.7} ${b.y + b.height - 12} L${b.x + b.width * 0.7} ${b.y} L${b.x + b.width * 0.3} ${b.y} L${b.x + b.width * 0.3} ${b.y + b.height - 12} Z`}
+              fill="#e3e7ec" stroke={INK} strokeWidth={fs / 12} />
+          )}
           <text x={b.x + b.width / 2} y={ty} fontSize={Math.min(fs * 0.66, b.width / 5)} fill={INK} textAnchor="middle" dominantBaseline="middle">
             {o.label}
           </text>
@@ -635,6 +664,28 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
           </text>
         </g>,
       );
+    }
+
+    // a tap over the sink, a hob on the worktop
+    if (g === "bottom") {
+      const wTop = y0 + H + dims.worktop;
+      for (const sg of r.segments) {
+        for (const c of sg.cabinets) {
+          const mid = X(r, (c.e0 + c.e1) / 2);
+          if (c.feature === "sink") {
+            const bw = Math.min(c.e1 - c.e0 - 6, 30);
+            out.push(
+              <g key={`sink${c.code}`} fill="none" stroke={INK} strokeWidth={fs / 10}>
+                <rect x={mid - bw / 2} y={Y(wTop)} width={bw} height={8} strokeDasharray={`${fs / 3} ${fs / 5}`} stroke={MUTED} />
+                <path d={`M${mid} ${Y(wTop)} V${Y(wTop + 11)} Q${mid} ${Y(wTop + 12.5)} ${mid + 2.5} ${Y(wTop + 12.5)} H${mid + 5} V${Y(wTop + 10.5)}`} strokeLinecap="round" />
+              </g>,
+            );
+          } else if (c.feature === "hob") {
+            const hw = Math.min(c.e1 - c.e0 - 3, 30);
+            out.push(<rect key={`hob${c.code}`} x={mid - hw / 2} y={Y(wTop + 0.6)} width={hw} height={0.6} fill={INK} />);
+          }
+        }
+      }
     }
 
     // the worktop and tiles, piece by piece as they are cut
@@ -691,6 +742,7 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
     if (bottom) heights.push([h.leg + h.bottom + h.worktop, h.topY0, `tiles ${f1(h.gap)}`]);
     else heights.push([0, h.topY0, `to underside ${f1(h.topY0)}`]);
     heights.push([h.topY0, h.topY0 + h.top, `cabinet ${f1(h.top)}`]);
+    if (h.pelmet) heights.push([h.topY0 + h.top, h.topY0 + h.top + h.pelmet, `border ${f1(h.pelmet)}`]);
   }
   const lower = bottom ?? top!;
   const chain = chainPoints(lower).map((e) => X(lower, e));
@@ -704,9 +756,23 @@ function Elevation({ result, wallId, view }: { result: EstimateResult; wallId: W
           <rect width={fs * 0.9} height={fs * 0.9} fill={FILL.blind} />
           <line x1="0" y1="0" x2="0" y2={fs * 0.9} stroke="#d9b75d" strokeWidth={fs / 12} />
         </pattern>
+        <pattern id={`bm${uid}`} width={fs * 0.7} height={fs * 0.7} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width={fs * 0.7} height={fs * 0.7} fill="#ece8e1" />
+          <line x1="0" y1="0" x2="0" y2={fs * 0.7} stroke={MUTED} strokeWidth={fs / 16} />
+        </pattern>
       </defs>
       {bottom && drawRun(bottom)}
       {top && drawRun(top)}
+      {runs.flatMap((r) =>
+        (r.beams ?? []).map((b, i) => (
+          <g key={`beam${r.index}-${i}`}>
+            <rect x={X(r, b.e0)} y={-padT * 0.4} width={b.e1 - b.e0} height={Math.max(0, Y(b.bottom) + padT * 0.4)} fill={`url(#bm${uid})`} stroke={INK} strokeWidth={fs / 10} />
+            <text x={X(r, (b.e0 + b.e1) / 2)} y={Y(b.bottom) - fs * 0.5} fontSize={fs * 0.6} fill={INK} textAnchor="middle">
+              beam · underside {f1(b.bottom)}in
+            </text>
+          </g>
+        )),
+      )}
       <line x1={-padL * 0.6} y1={Y(0)} x2={W + fs} y2={Y(0)} stroke={INK} strokeWidth={fs / 6} />
 
       {chain.slice(1).map((x, i) => (
