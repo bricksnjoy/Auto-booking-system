@@ -43,3 +43,28 @@ export function PageSkeleton({ stats = 4, rows = 6 }: { stats?: number; rows?: n
     </div>
   );
 }
+
+/** A form on its way: a title, fields, and a document beside them. */
+export function FormSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading">
+      <div className="mb-6">
+        <Bar className="h-7 w-52" />
+        <Bar className="mt-2 h-4 w-72" />
+      </div>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="space-y-4 rounded-xl border border-[var(--border)] p-5">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i}>
+              <Bar className="h-3 w-24" />
+              <Bar className="mt-2 h-9 w-full" />
+            </div>
+          ))}
+        </div>
+        <div className="rounded-xl border border-[var(--border)] p-5">
+          <Bar className="h-[420px] w-full" />
+        </div>
+      </div>
+    </div>
+  );
+}

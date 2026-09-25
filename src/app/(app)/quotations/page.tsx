@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Pending } from "@/components/pending";
 import { createClient } from "@/lib/supabase/server";
 import { Card, PageHeader, Stat, Table, Th, Td, Empty } from "@/components/ui";
 import { QUOTE_STATUSES, QUOTE_STATUS_LABEL, STATUS_TONE, type QuoteStatus } from "@/lib/documents";
@@ -47,14 +48,17 @@ export default async function QuotationsPage({
             <Link href="/quotations/signatures"
               className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium hover:bg-[var(--hover)]">
               Signatures &amp; stamp
+              <Pending />
             </Link>
             <Link href="/quotations/templates"
               className="rounded-lg border border-[var(--border)] bg-[var(--field)] px-3.5 py-2 text-sm font-medium hover:bg-[var(--hover)]">
               Edit templates
+              <Pending />
             </Link>
             <Link href="/quotations/new"
               className="rounded-lg bg-[var(--brand)] px-3.5 py-2 text-sm font-medium text-white hover:bg-[var(--brand-hover)]">
               + New quotation
+              <Pending light />
             </Link>
           </div>
         }

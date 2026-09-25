@@ -15,13 +15,14 @@ export default async function NewQuotationPage({
 }) {
   const { project: projectParam, estimate: estimateId } = await searchParams;
   const supabase = await createClient();
-  const { templates, kit, projects, clients } = await formData(supabase);
+  // the form's lists and, if made from a cabinet estimate, its lines — all at once
+  const [{ templates, kit, projects, clients }, { data: est }] = await Promise.all([
+    formData(supabase),
+    estimateId
+      ? supabase.from("cabinet_estimates").select("id, name, project_id, inputs, result").eq("id", estimateId).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
   const template = templates[0];
-
-  // made from a cabinet estimate: its lines, its project
-  const { data: est } = estimateId
-    ? await supabase.from("cabinet_estimates").select("id, name, project_id, inputs, result").eq("id", estimateId).maybeSingle()
-    : { data: null };
   const estLines = est ? quotationLines(est.inputs as EstimateInput, est.result as EstimateResult) : null;
   const projectId = projectParam ?? est?.project_id ?? undefined;
   const today = new Date().toISOString().slice(0, 10);

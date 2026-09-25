@@ -5,7 +5,7 @@ import type { ClientOption, ProjectOption } from "./quotation-form";
 
 /** Everything the quotation form offers: templates, projects and clients. */
 export async function formData(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const [{ data: t }, { data: projects }, { data: clients }] = await Promise.all([
+  const [{ data: t }, { data: projects }, { data: clients }, kit] = await Promise.all([
     supabase
       .from("document_templates")
       .select("*")
@@ -14,9 +14,9 @@ export async function formData(supabase: Awaited<ReturnType<typeof createClient>
       .order("created_at"),
     supabase.from("projects").select("id, code, name, client_id").order("code", { ascending: false }),
     supabase.from("clients").select("id, name, phone, address").order("name"),
+    signingKit(supabase),
   ]);
   const templates = (t ?? []).map(toTemplate);
-  const kit = await signingKit(supabase);
   return {
     templates,
     kit,
